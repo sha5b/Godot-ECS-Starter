@@ -1,0 +1,96 @@
+[gd_scene load_steps=6 format=3 uid="uid://b4lf41tkirh3g"]
+
+[ext_resource type="Script" uid="uid://eia5g8y70ykx" path="res://scripts/world/isometric_tilemap.gd" id="1_cqvpt"]
+[ext_resource type="Script" uid="uid://beinlgogpgexh" path="res://scripts/entities/player.gd" id="2_e7gtl"]
+[ext_resource type="Script" uid="uid://c6kppk1ta0eq5" path="res://scenes/main.gd" id="3_0x5d3"]
+[ext_resource type="Script" uid="uid://ch4x74prf72m5" path="res://scripts/systems/npc_manager.gd" id="4_1g8yu"]
+[ext_resource type="Script" uid="uid://dd25rhe8a5wby" path="res://scripts/systems/environment_system.gd" id="5_nrrmj"]
+
+[node name="Main" type="Node2D"]
+script = ExtResource("3_0x5d3")
+
+[node name="TileMap" type="Node2D" parent="."]
+position = Vector2(640, 360)
+script = ExtResource("1_cqvpt")
+
+[node name="NPCManager" type="Node2D" parent="."]
+script = ExtResource("4_1g8yu")
+
+[node name="EnvironmentSystem" type="Node2D" parent="."]
+script = ExtResource("5_nrrmj")
+
+[node name="Player" type="Node2D" parent="."]
+position = Vector2(640, 360)
+script = ExtResource("2_e7gtl")
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="DebugUI" type="Control" parent="CanvasLayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="SystemInfo" type="Label" parent="CanvasLayer/DebugUI"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 20.0
+offset_right = 300.0
+offset_bottom = 200.0
+text = "Debug Info"
+
+[node name="WeatherControls" type="VBoxContainer" parent="CanvasLayer/DebugUI"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 220.0
+offset_right = 300.0
+offset_bottom = 400.0
+
+[node name="Label" type="Label" parent="CanvasLayer/DebugUI/WeatherControls"]
+layout_mode = 2
+text = "Weather Controls"
+
+[node name="WeatherType" type="OptionButton" parent="CanvasLayer/DebugUI/WeatherControls"]
+layout_mode = 2
+selected = 0
+item_count = 4
+popup/item_0/text = "Clear"
+popup/item_0/id = 0
+popup/item_1/text = "Rain"
+popup/item_1/id = 1
+popup/item_2/text = "Snow"
+popup/item_2/id = 2
+popup/item_3/text = "Fog"
+popup/item_3/id = 3
+
+[node name="Intensity" type="HSlider" parent="CanvasLayer/DebugUI/WeatherControls"]
+layout_mode = 2
+min_value = 0.1
+max_value = 1.0
+step = 0.1
+value = 0.5
+
+[node name="ToggleButtons" type="VBoxContainer" parent="CanvasLayer/DebugUI"]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 430.0
+offset_right = 300.0
+offset_bottom = 550.0
+
+[node name="ShowCollision" type="CheckButton" parent="CanvasLayer/DebugUI/ToggleButtons"]
+layout_mode = 2
+button_pressed = true
+text = "Show Collision"
+
+[node name="ShowNavigation" type="CheckButton" parent="CanvasLayer/DebugUI/ToggleButtons"]
+layout_mode = 2
+button_pressed = true
+text = "Show Navigation"
+
+[node name="ShowSpawnPoints" type="CheckButton" parent="CanvasLayer/DebugUI/ToggleButtons"]
+layout_mode = 2
+button_pressed = true
+text = "Show Spawn Points"
