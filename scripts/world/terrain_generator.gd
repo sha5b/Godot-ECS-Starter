@@ -52,10 +52,12 @@ func generate_height_at(grid_pos: Vector2i) -> void:
 
 func _sample_noise(x: int, y: int) -> float:
 	# Sample noise and return a float height (0.0 to max_height)
-	var nx = float(x) / 100.0
-	var ny = float(y) / 100.0
+	# Removed division by 100.0 - let frequency handle scale
+	var nx = float(x) 
+	var ny = float(y)
 	var base_height = (noise.get_noise_2d(nx, ny) + 1.0) / 2.0
-	var detail = (noise.get_noise_2d(nx*2, ny*2) + 1.0) / 2.0
+	# Detail noise still uses doubled coordinates relative to base
+	var detail = (noise.get_noise_2d(nx*2, ny*2) + 1.0) / 2.0 
 	var height = base_height * 0.8 + detail * 0.2
 	if base_height < 0.3:
 		height = 0.0  # Water is always at lowest level
