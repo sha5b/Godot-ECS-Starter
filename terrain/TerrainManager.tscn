@@ -1,0 +1,10 @@
+[gd_scene load_steps=3 format=3 uid="uid://d7k1l2m3n4o5p"] ; Unique UID for this scene
+
+[ext_resource type="Script" path="res://terrain/TerrainManager.gd" id="1_terrainscript"]
+[ext_resource type="Script" path="res://terrain/TerrainRenderer.gd" id="2_rendererscript"] ; Added renderer script resource
+
+[node name="TerrainManager" type="Node"]
+script = ExtResource("1_terrainscript")
+
+[node name="TerrainRenderer" type="Node2D" parent="."]
+script = ExtResource("2_rendererscript")

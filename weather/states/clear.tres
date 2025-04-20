@@ -1,0 +1,14 @@
+[gd_resource type="Resource" script_class="WeatherState" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://weather/WeatherState.gd" id="1_weatherstate_script"]
+
+[resource]
+script = ExtResource("1_weatherstate_script")
+state_name = "Clear"
+precipitation_type = "none"
+precipitation_intensity = 0.0
+wind_direction = Vector2(1, 0)
+wind_speed = 2.0
+temperature_modifier = 0.0
+cloud_coverage = 0.1
+visibility = 1.0
