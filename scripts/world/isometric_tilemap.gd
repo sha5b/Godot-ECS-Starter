@@ -13,8 +13,9 @@ var visible_grid_height: int = 30  # Higher view for fullscreen
 var world_size: int = 1000  # Make the world very large (practically infinite)
 
 # Height properties for terrain variation
-var height_map = {}  # Stores height values for each tile
-var max_height: int = 8  # Maximum height variation (Increased for more pronounced differences)
+# Stores per-corner height values for each tile: {grid_pos: {"nw": float, "ne": float, "se": float, "sw": float}}
+var height_map = {}
+var max_height: float = 8.0  # Maximum height variation (can be float for smooth slopes)
 
 # Collision settings
 var collision_enabled: bool = true
@@ -195,44 +196,50 @@ func get_tile_at_position(world_pos: Vector2) -> Vector2i:
 	return best_pos
 
 func get_height_offset(grid_pos: Vector2i) -> float:
-	# Get the height offset for a tile
+	# Get the average height offset for a tile (for legacy compatibility)
 	if not height_map.has(grid_pos):
-		# Generate height if not already set
 		_generate_height_at(grid_pos)
-	
-	return height_map[grid_pos] * 10.0  # Convert to pixel offset
+	var h = height_map[grid_pos]
+	return ((h["nw"] + h["ne"] + h["se"] + h["sw"]) / 4.0) * 10.0  # Average for offset
+
+func get_corner_heights(grid_pos: Vector2i) -> Dictionary:
+	# Get the per-corner heights for a tile
+	if not height_map.has(grid_pos):
+		_generate_height_at(grid_pos)
+	return height_map[grid_pos]
 
 func _generate_height_at(grid_pos: Vector2i):
-	# Generate terrain height based on noise
-	var nx = float(grid_pos.x) / 100.0
-	var ny = float(grid_pos.y) / 100.0
-	
-	# Base height from noise (0.0 to 1.0)
+	# Generate per-corner heights for smooth slopes
+	var corners = {
+		"nw": _sample_noise(grid_pos.x,     grid_pos.y),
+		"ne": _sample_noise(grid_pos.x + 1, grid_pos.y),
+		"se": _sample_noise(grid_pos.x + 1, grid_pos.y + 1),
+		"sw": _sample_noise(grid_pos.x,     grid_pos.y + 1)
+	}
+	height_map[grid_pos] = corners
+
+func _sample_noise(x: int, y: int) -> float:
+	# Sample noise and return a float height (0.0 to max_height)
+	var nx = float(x) / 100.0
+	var ny = float(y) / 100.0
 	var base_height = (noise.get_noise_2d(nx, ny) + 1.0) / 2.0
-	
-	# Add some variety with secondary noise
 	var detail = (noise.get_noise_2d(nx*2, ny*2) + 1.0) / 2.0
-	
-	# Combine for final height
 	var height = base_height * 0.8 + detail * 0.2
-	
-	# Special case for water
 	if base_height < 0.3:
 		height = 0.0  # Water is always at lowest level
-	
-	# Store the height (0 to max_height)
-	height_map[grid_pos] = round(height * max_height)
+	return height * max_height
 
 func get_tile_type_from_height(grid_pos: Vector2i) -> String:
-	# Determine tile type based on height and noise variations
+	# Determine tile type based on average corner height and moisture variations
 	if not height_map.has(grid_pos):
 		_generate_height_at(grid_pos)
-	
-	var height = height_map[grid_pos]
+	var corners = get_corner_heights(grid_pos)
+	var avg_height = (corners["nw"] + corners["ne"] + corners["se"] + corners["sw"]) / 4.0
+	var height = int(round(avg_height))
 	var nx = float(grid_pos.x) / 50.0
 	var ny = float(grid_pos.y) / 50.0
 	var moisture = (noise.get_noise_2d(nx*3, ny*3) + 1.0) / 2.0  # Moisture variation
-	
+
 	# Biome determination based on height and moisture
 	if height == 0:
 		return "water"
@@ -242,7 +249,7 @@ func get_tile_type_from_height(grid_pos: Vector2i) -> String:
 		return "grass" if moisture > 0.3 else "dirt"
 	elif height == 3:
 		return "dirt" if moisture < 0.7 else "grass"
-	else:  # height == 4 (highest)
+	else:
 		return "rock" if moisture < 0.4 else "snow"
 
 func place_tile(grid_pos: Vector2i, tile_type: String = "", has_collision: bool = false):
@@ -289,30 +296,39 @@ func place_tile(grid_pos: Vector2i, tile_type: String = "", has_collision: bool 
 	set_tile_collision(grid_pos, has_collision)
 	
 	# Create depth effect for heights > 0
-	if height_map[grid_pos] > 0:
-		_create_height_shadow(grid_pos, height_map[grid_pos])
+	var corners = height_map[grid_pos]
+	var avg_h = int(round((corners["nw"] + corners["ne"] + corners["se"] + corners["sw"]) / 4.0))
+	if avg_h > 0:
+		_create_height_shadow(grid_pos)
 	
 	return tile
 
-func _create_tile_visual(tile_type: String, height: int) -> Node2D:
-	# Create a visual representation for the tile with height
+func _create_tile_visual(tile_type: String, corner_heights: Dictionary) -> Node2D:
+	# Create a visual representation for the tile with per-corner heights (slopes)
 	var tile = Node2D.new()
-	
-	# Create a polygon for the tile shape
+
+	# Get per-corner heights (in pixels)
+	var h_nw = corner_heights.get("nw", 0.0) * 10.0
+	var h_ne = corner_heights.get("ne", 0.0) * 10.0
+	var h_se = corner_heights.get("se", 0.0) * 10.0
+	var h_sw = corner_heights.get("sw", 0.0) * 10.0
+
+	# Create a polygon for the tile shape, offsetting each corner by its height
 	var polygon = Polygon2D.new()
 	var points = [
-		Vector2(0, -tile_height/2),   # Top
-		Vector2(tile_width/2, 0),     # Right
-		Vector2(0, tile_height/2),    # Bottom
-		Vector2(-tile_width/2, 0)     # Left
+		Vector2(0, -tile_height/2 - h_nw),   # Top (NW)
+		Vector2(tile_width/2, 0 - h_ne),     # Right (NE)
+		Vector2(0, tile_height/2 - h_se),    # Bottom (SE)
+		Vector2(-tile_width/2, 0 - h_sw)     # Left (SW)
 	]
-	
+
 	# Set polygon color based on tile_type
 	var color = Color.WHITE
 	match tile_type:
 		"grass":
-			# Vary grass color slightly based on height
-			var green_intensity = 0.6 + (height * 0.1)
+			# Vary grass color slightly based on average height
+			var avg_height = (h_nw + h_ne + h_se + h_sw) / 40.0
+			var green_intensity = 0.6 + (avg_height * 0.1)
 			color = Color(0.0, green_intensity, 0.0)
 		"dirt":
 			color = Color(0.6, 0.4, 0.2)
@@ -326,23 +342,23 @@ func _create_tile_visual(tile_type: String, height: int) -> Node2D:
 			color = Color(0.9, 0.9, 0.95)
 		_:
 			color = Color(0.5, 0.3, 0.0)  # Default brown
-	
+
 	# Vary color slightly for natural look
 	var variation = randf_range(-0.05, 0.05)
 	color = color.lightened(variation)
-	
+
 	polygon.color = color
 	polygon.polygon = points
-	
+
 	# Add outline
 	var outline = Line2D.new()
 	outline.points = points + [points[0]]
 	outline.width = 1.0
 	outline.default_color = color.darkened(0.3)
-	
+
 	tile.add_child(polygon)
 	tile.add_child(outline)
-	
+
 	# For water tiles, add animation
 	if tile_type == "water":
 		var timer = Timer.new()
@@ -351,7 +367,7 @@ func _create_tile_visual(tile_type: String, height: int) -> Node2D:
 		timer.one_shot = false
 		timer.timeout.connect(_animate_water.bind(polygon))
 		tile.add_child(timer)
-	
+
 	return tile
 
 func _animate_water(polygon: Polygon2D):
@@ -367,15 +383,17 @@ func _animate_water(polygon: Polygon2D):
 	tween.tween_property(polygon, "color", target_color, 1.0)
 	tween.tween_property(polygon, "color", current_color, 1.0)
 
-func _create_height_shadow(grid_pos: Vector2i, height: int):
+func _create_height_shadow(grid_pos: Vector2i):
 	# Create a visual effect for height
-	if height <= 0:
+	var corners = get_corner_heights(grid_pos)
+	var avg_h = int(round((corners["nw"] + corners["ne"] + corners["se"] + corners["sw"]) / 4.0))
+	if avg_h <= 0:
 		return
-		
+
 	var world_pos = grid_to_world(grid_pos)
 	
 	# Draw height as side faces (for elevated tiles)
-	for h in range(height):
+	for h in range(avg_h):
 		var side = Node2D.new()
 		side.position = world_pos
 		side.position.y -= h * 10.0
@@ -410,11 +428,19 @@ func _create_height_shadow(grid_pos: Vector2i, height: int):
 		height_container.add_child(side)
 
 func set_tile_collision(grid_pos: Vector2i, has_collision: bool):
-	# Update collision map
-	collision_map[grid_pos] = has_collision
+	# Update collision map, considering slope steepness
+	var slope_limit = 2.5  # Maximum allowed height difference (in height units) between corners for walkable tile
+	var corners = get_corner_heights(grid_pos)
+	var heights = [corners["nw"], corners["ne"], corners["se"], corners["sw"]]
+	var max_slope = 0.0
+	for i in range(4):
+		for j in range(i + 1, 4):
+			max_slope = max(max_slope, abs(heights[i] - heights[j]))
+	# If the slope is too steep, mark as collision
+	collision_map[grid_pos] = has_collision or (max_slope > slope_limit)
 	
 func has_collision(grid_pos: Vector2i) -> bool:
-	# Check if a tile has collision
+	# Check if a tile has collision (including slope)
 	return collision_map.get(grid_pos, false)
 
 func generate_terrain():
@@ -424,6 +450,7 @@ func generate_terrain():
 	# Get the center of view for the player start
 	var center_x = 50
 	var center_y = 50
+	var chunk_size = 100  # Increased chunk size for larger terrain generation
 	
 	# Clear existing tiles
 	for pos in tile_map.keys():
@@ -435,9 +462,9 @@ func generate_terrain():
 	collision_map.clear()
 	height_map.clear()
 	
-	# Generate starting visible area (later this would be done in chunks as needed)
-	for x in range(center_x - visible_grid_width/2, center_x + visible_grid_width/2):
-		for y in range(center_y - visible_grid_height/2, center_y + visible_grid_height/2):
+	# Generate larger chunk area
+	for x in range(center_x - chunk_size/2, center_x + chunk_size/2):
+		for y in range(center_y - chunk_size/2, center_y + chunk_size/2):
 			var grid_pos = Vector2i(x, y)
 			place_tile(grid_pos)
 	

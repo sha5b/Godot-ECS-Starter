@@ -93,7 +93,7 @@ func _draw():
 		
 		# Account for height
 		var height_offset = tilemap.get_height_offset(spawn_point)
-		world_pos.y -= height_offset
+		world_pos.y -= float(height_offset)
 		
 		# Draw a circle at spawn position
 		draw_circle(world_pos, 5, Color(1, 1, 0, 0.7))
@@ -122,7 +122,7 @@ func _generate_spawn_points():
 				# Check tile type
 				var is_valid = false
 				for tile_data in tilemap.tile_map.get(pos, []):
-					if tile_data.type != "water":
+					if tile_data.get("type") != "water":
 						is_valid = true
 						break
 				
@@ -171,7 +171,7 @@ func _create_npc(id: int, spawn_pos: Vector2i) -> Node2D:
 	
 	# Apply height offset
 	var height_offset = tilemap.get_height_offset(spawn_pos)
-	world_pos.y -= height_offset
+	world_pos.y -= float(height_offset)
 	
 	npc_scene.position = world_pos
 	npc_scene.world_position = world_pos
@@ -270,11 +270,16 @@ func _generate_patrol_path(start_pos: Vector2i) -> Array:
 			# Check if position is valid
 			if _is_valid_position(next_pos):
 				# For patrol paths, try to follow similar heights
-				var current_height = tilemap.height_map.get(current_pos, 0)
-				var next_height = tilemap.height_map.get(next_pos, 0)
+				# Get average height for current position
+				var current_heights = tilemap.height_map.get(current_pos, {"nw": 0, "ne": 0, "se": 0, "sw": 0})
+				var current_avg_height = (current_heights["nw"] + current_heights["ne"] + current_heights["se"] + current_heights["sw"]) / 4.0
+				
+				# Get average height for next position
+				var next_heights = tilemap.height_map.get(next_pos, {"nw": 0, "ne": 0, "se": 0, "sw": 0})
+				var next_avg_height = (next_heights["nw"] + next_heights["ne"] + next_heights["se"] + next_heights["sw"]) / 4.0
 				
 				# Only accept if height difference is not too large
-				if abs(current_height - next_height) <= 1:
+				if abs(current_avg_height - next_avg_height) <= 1:
 					valid_move = true
 			
 			attempts += 1
@@ -283,7 +288,7 @@ func _generate_patrol_path(start_pos: Vector2i) -> Array:
 			var world_pos = tilemap.grid_to_world(next_pos)
 			# Apply height offset for the waypoint
 			var height_offset = tilemap.get_height_offset(next_pos)
-			world_pos.y -= height_offset
+			world_pos.y -= float(height_offset)
 			
 			path.append(world_pos)
 			current_pos = next_pos
@@ -308,7 +313,7 @@ func _is_valid_position(pos: Vector2i) -> bool:
 		
 	# Make sure it's not water
 	for tile_data in tilemap.tile_map.get(pos, []):
-		if tile_data.type == "water":
+		if tile_data.get("type") == "water":
 			return false
 	
 	return true
