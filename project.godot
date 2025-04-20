@@ -22,7 +22,7 @@ GameManager="*res://scripts/autoload/game_manager.gd"
 [display]
 
 window/size/borderless=true
-window/stretch/mode="canvas_items"
+window/stretch/mode="viewport"
 "#Changedfromcanvas_items[gd_scene]scripts/entity"="res://scripts/entities/entity.gd"
 
 [gd_scene]
