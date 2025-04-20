@@ -76,8 +76,8 @@ func _draw():
 
 func _draw_debug_grid():
 	# Draw the isometric grid (only visible portion)
-	var center_x = int(get_viewport_rect().size.x / 2 / tile_width)
-	var center_y = int(get_viewport_rect().size.y / 2 / tile_height)
+	var center_x = int(get_viewport_rect().size.x / 2.0 / tile_width)
+	var center_y = int(get_viewport_rect().size.y / 2.0 / tile_height)
 	
 	# Get player position to center grid if available
 	var player_grid_pos = Vector2i(center_x, center_y)
@@ -86,10 +86,10 @@ func _draw_debug_grid():
 		player_grid_pos = player.grid_position
 	
 	# Draw grid centered on player/center
-	var start_x = max(0, player_grid_pos.x - visible_grid_width/2)
-	var end_x = min(world_size, player_grid_pos.x + visible_grid_width/2)
-	var start_y = max(0, player_grid_pos.y - visible_grid_height/2)
-	var end_y = min(world_size, player_grid_pos.y + visible_grid_height/2)
+	var start_x = max(0, player_grid_pos.x - visible_grid_width/2.0)
+	var end_x = min(world_size, player_grid_pos.x + visible_grid_width/2.0)
+	var start_y = max(0, player_grid_pos.y - visible_grid_height/2.0)
+	var end_y = min(world_size, player_grid_pos.y + visible_grid_height/2.0)
 	
 	for x in range(start_x, end_x):
 		for y in range(start_y, end_y):
@@ -99,10 +99,10 @@ func _draw_debug_grid():
 			
 			# Draw grid cell (rhombus shape for isometric)
 			var points = [
-				Vector2(pos.x, pos.y - tile_height/2),  # Top
-				Vector2(pos.x + tile_width/2, pos.y),   # Right
-				Vector2(pos.x, pos.y + tile_height/2),  # Bottom
-				Vector2(pos.x - tile_width/2, pos.y)    # Left
+				Vector2(pos.x, pos.y - tile_height/2.0),  # Top
+				Vector2(pos.x + tile_width/2.0, pos.y),   # Right
+				Vector2(pos.x, pos.y + tile_height/2.0),  # Bottom
+				Vector2(pos.x - tile_width/2.0, pos.y)    # Left
 			]
 			
 			# Draw outline
@@ -125,10 +125,10 @@ func _draw_debug_collision():
 		return
 		
 	var player_grid_pos = player.grid_position
-	var start_x = max(0, player_grid_pos.x - visible_grid_width/2)
-	var end_x = min(world_size, player_grid_pos.x + visible_grid_width/2)
-	var start_y = max(0, player_grid_pos.y - visible_grid_height/2)
-	var end_y = min(world_size, player_grid_pos.y + visible_grid_height/2)
+	var start_x = max(0, player_grid_pos.x - visible_grid_width/2.0)
+	var end_x = min(world_size, player_grid_pos.x + visible_grid_width/2.0)
+	var start_y = max(0, player_grid_pos.y - visible_grid_height/2.0)
+	var end_y = min(world_size, player_grid_pos.y + visible_grid_height/2.0)
 	
 	for x in range(start_x, end_x):
 		for y in range(start_y, end_y):
@@ -140,10 +140,10 @@ func _draw_debug_collision():
 				
 				# Draw a red rhombus for collision
 				var points = [
-					Vector2(world_pos.x, world_pos.y - tile_height/2),
-					Vector2(world_pos.x + tile_width/2, world_pos.y),
-					Vector2(world_pos.x, world_pos.y + tile_height/2),
-					Vector2(world_pos.x - tile_width/2, world_pos.y)
+					Vector2(world_pos.x, world_pos.y - tile_height/2.0),
+					Vector2(world_pos.x + tile_width/2.0, world_pos.y),
+					Vector2(world_pos.x, world_pos.y + tile_height/2.0),
+					Vector2(world_pos.x - tile_width/2.0, world_pos.y)
 				]
 				
 				# Fill with transparent red
@@ -151,15 +151,15 @@ func _draw_debug_collision():
 
 func grid_to_world(grid_pos: Vector2i) -> Vector2:
 	# Convert grid coordinates to world position (isometric projection)
-	var x = (grid_pos.x - grid_pos.y) * (tile_width / 2)
-	var y = (grid_pos.x + grid_pos.y) * (tile_height / 2)
+	var x = (grid_pos.x - grid_pos.y) * (tile_width / 2.0)
+	var y = (grid_pos.x + grid_pos.y) * (tile_height / 2.0)
 	return Vector2(x, y)
 
 func world_to_grid(world_pos: Vector2) -> Vector2i:
 	# Convert world position to grid coordinates
 	# The inverse of grid_to_world
-	var grid_x = (world_pos.x / (tile_width / 2) + world_pos.y / (tile_height / 2)) / 2
-	var grid_y = (world_pos.y / (tile_height / 2) - world_pos.x / (tile_width / 2)) / 2
+	var grid_x = (world_pos.x / (tile_width / 2.0) + world_pos.y / (tile_height / 2.0)) / 2.0
+	var grid_y = (world_pos.y / (tile_height / 2.0) - world_pos.x / (tile_width / 2.0)) / 2.0
 	
 	return Vector2i(round(grid_x), round(grid_y))
 
@@ -252,7 +252,7 @@ func get_tile_type_from_height(grid_pos: Vector2i) -> String:
 	else:
 		return "rock" if moisture < 0.4 else "snow"
 
-func place_tile(grid_pos: Vector2i, tile_type: String = "", has_collision: bool = false):
+func place_tile(grid_pos: Vector2i, tile_type: String = "", tile_has_collision: bool = false):
 	# Place a tile at the specified grid position
 	# First check if a tile already exists at this position
 	if tile_map.has(grid_pos) and tile_map[grid_pos].size() > 0:
@@ -271,8 +271,8 @@ func place_tile(grid_pos: Vector2i, tile_type: String = "", has_collision: bool 
 		tile_type = get_tile_type_from_height(grid_pos)
 	
 	# Default collision for certain tile types
-	if has_collision == false:
-		has_collision = (tile_type == "rock" or tile_type == "water")
+	if tile_has_collision == false:
+		tile_has_collision = (tile_type == "rock" or tile_type == "water")
 	
 	# Calculate world position including height offset
 	var world_pos = grid_to_world(grid_pos)
@@ -293,7 +293,7 @@ func place_tile(grid_pos: Vector2i, tile_type: String = "", has_collision: bool 
 	tile_map[grid_pos].append({"type": tile_type, "node": tile, "height": height_map[grid_pos]})
 	
 	# Update collision
-	set_tile_collision(grid_pos, has_collision)
+	set_tile_collision(grid_pos, tile_has_collision)
 	
 	# Create depth effect for heights > 0
 	var corners = height_map[grid_pos]
@@ -316,10 +316,10 @@ func _create_tile_visual(tile_type: String, corner_heights: Dictionary) -> Node2
 	# Create a polygon for the tile shape, offsetting each corner by its height
 	var polygon = Polygon2D.new()
 	var points = [
-		Vector2(0, -tile_height/2 - h_nw),   # Top (NW)
-		Vector2(tile_width/2, 0 - h_ne),     # Right (NE)
-		Vector2(0, tile_height/2 - h_se),    # Bottom (SE)
-		Vector2(-tile_width/2, 0 - h_sw)     # Left (SW)
+		Vector2(0, -tile_height/2.0 - h_nw),   # Top (NW)
+		Vector2(tile_width/2.0, 0 - h_ne),     # Right (NE)
+		Vector2(0, tile_height/2.0 - h_se),    # Bottom (SE)
+		Vector2(-tile_width/2.0, 0 - h_sw)     # Left (SW)
 	]
 
 	# Set polygon color based on tile_type
@@ -404,10 +404,10 @@ func _create_height_shadow(grid_pos: Vector2i):
 		# South face
 		var south = Polygon2D.new()
 		var south_points = [
-			Vector2(-tile_width/2, 0),  # Left
-			Vector2(0, tile_height/2),  # Bottom
-			Vector2(0, tile_height/2 - 10),  # Bottom-up
-			Vector2(-tile_width/2, -10)  # Left-up
+			Vector2(-tile_width/2.0, 0),  # Left
+			Vector2(0, tile_height/2.0),  # Bottom
+			Vector2(0, tile_height/2.0 - 10),  # Bottom-up
+			Vector2(-tile_width/2.0, -10)  # Left-up
 		]
 		south.color = side_color.darkened(0.2)
 		south.polygon = south_points
@@ -416,10 +416,10 @@ func _create_height_shadow(grid_pos: Vector2i):
 		# East face
 		var east = Polygon2D.new()
 		var east_points = [
-			Vector2(0, tile_height/2),  # Bottom
-			Vector2(tile_width/2, 0),  # Right
-			Vector2(tile_width/2, -10),  # Right-up
-			Vector2(0, tile_height/2 - 10)  # Bottom-up
+			Vector2(0, tile_height/2.0),  # Bottom
+			Vector2(tile_width/2.0, 0),  # Right
+			Vector2(tile_width/2.0, -10),  # Right-up
+			Vector2(0, tile_height/2.0 - 10)  # Bottom-up
 		]
 		east.color = side_color
 		east.polygon = east_points
@@ -427,7 +427,7 @@ func _create_height_shadow(grid_pos: Vector2i):
 		
 		height_container.add_child(side)
 
-func set_tile_collision(grid_pos: Vector2i, has_collision: bool):
+func set_tile_collision(grid_pos: Vector2i, tile_has_collision: bool):
 	# Update collision map, considering slope steepness
 	var slope_limit = 2.5  # Maximum allowed height difference (in height units) between corners for walkable tile
 	var corners = get_corner_heights(grid_pos)
@@ -437,7 +437,7 @@ func set_tile_collision(grid_pos: Vector2i, has_collision: bool):
 		for j in range(i + 1, 4):
 			max_slope = max(max_slope, abs(heights[i] - heights[j]))
 	# If the slope is too steep, mark as collision
-	collision_map[grid_pos] = has_collision or (max_slope > slope_limit)
+	collision_map[grid_pos] = tile_has_collision or (max_slope > slope_limit)
 	
 func has_collision(grid_pos: Vector2i) -> bool:
 	# Check if a tile has collision (including slope)
@@ -463,8 +463,8 @@ func generate_terrain():
 	height_map.clear()
 	
 	# Generate larger chunk area
-	for x in range(center_x - chunk_size/2, center_x + chunk_size/2):
-		for y in range(center_y - chunk_size/2, center_y + chunk_size/2):
+	for x in range(center_x - chunk_size/2.0, center_x + chunk_size/2.0):
+		for y in range(center_y - chunk_size/2.0, center_y + chunk_size/2.0):
 			var grid_pos = Vector2i(x, y)
 			place_tile(grid_pos)
 	
@@ -487,10 +487,10 @@ func check_terrain_expansion(player_pos: Vector2i, expansion_threshold: int = 8)
 	var needs_expansion = false
 	
 	# Check edges of visible area
-	var x_min = player_pos.x - visible_grid_width/2 + expansion_threshold
-	var x_max = player_pos.x + visible_grid_width/2 - expansion_threshold
-	var y_min = player_pos.y - visible_grid_height/2 + expansion_threshold
-	var y_max = player_pos.y + visible_grid_height/2 - expansion_threshold
+	var x_min = player_pos.x - visible_grid_width/2.0 + expansion_threshold
+	var x_max = player_pos.x + visible_grid_width/2.0 - expansion_threshold
+	var y_min = player_pos.y - visible_grid_height/2.0 + expansion_threshold
+	var y_max = player_pos.y + visible_grid_height/2.0 - expansion_threshold
 	
 	# Check for tiles at the edges
 	for x in [x_min, x_max]:

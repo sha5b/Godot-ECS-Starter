@@ -208,8 +208,8 @@ func _update_weather_particles(weather_type: String, intensity: float):
 			fog_particles.amount = int(30 * intensity)
 			
 			# Adjust fog opacity based on intensity
-			var material = fog_particles.process_material
-			material.color = Color(0.8, 0.8, 0.9, 0.1 * intensity)
+			var fog_proc_material = fog_particles.process_material
+			fog_proc_material.color = Color(0.8, 0.8, 0.9, 0.1 * intensity)
 		_:  # Clear weather
 			rain_particles.emitting = false
 			snow_particles.emitting = false
@@ -229,7 +229,7 @@ func transition_weather(weather_type: String, intensity: float = 0.5, transition
 	
 	# Begin transition (the actual transition happens in _update_weather_transition)
 
-func _update_weather_transition(delta):
+func _update_weather_transition(_delta):
 	# Handle weather transition over time
 	# This would gradually fade between weather types
 	# For this simple version, just set the weather directly

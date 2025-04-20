@@ -81,10 +81,10 @@ func _create_debug_visuals():
 	var polygon = Polygon2D.new()
 	var size = 24
 	var points = [
-		Vector2(-size/2, -size/2),  # Top-left
-		Vector2(size/2, -size/2),   # Top-right
-		Vector2(size/2, size/2),    # Bottom-right
-		Vector2(-size/2, size/2)    # Bottom-left
+		Vector2(-size/2.0, -size/2.0),  # Top-left
+		Vector2(size/2.0, -size/2.0),   # Top-right
+		Vector2(size/2.0, size/2.0),    # Bottom-right
+		Vector2(-size/2.0, size/2.0)    # Bottom-left
 	]
 	
 	polygon.color = debug_color
@@ -98,7 +98,7 @@ func _create_debug_visuals():
 	
 	# Add direction indicator
 	var direction = Line2D.new()
-	direction.points = [Vector2.ZERO, Vector2(0, -size)]
+	direction.points = [Vector2.ZERO, Vector2(0, -size * 1.0)]
 	direction.width = 2.0
 	direction.default_color = Color(1, 1, 1)
 	

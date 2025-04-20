@@ -34,9 +34,9 @@ func _setup_player():
 	# Create a polygon for the player shape (triangle pointing up)
 	var polygon = Polygon2D.new()
 	var points = [
-		Vector2(0, -size/2),            # Top
-		Vector2(size/2, size/2),        # Bottom right
-		Vector2(-size/2, size/2)         # Bottom left
+		Vector2(0, -size/2.0),            # Top
+		Vector2(size/2.0, size/2.0),        # Bottom right
+		Vector2(-size/2.0, size/2.0)         # Bottom left
 	]
 	
 	polygon.color = debug_color
