@@ -119,12 +119,9 @@ func _generate_spawn_points():
 			
 			# Check if this is a valid position (no collision and not water)
 			if not tilemap.has_collision(pos):
-				# Check tile type
-				var is_valid = false
-				for tile_data in tilemap.tile_map.get(pos, []):
-					if tile_data.get("type") != "water":
-						is_valid = true
-						break
+				# Check tile type using the proper method
+				var tile_type = tilemap.get_tile_type_from_height(pos)
+				var is_valid = (tile_type != "water")
 				
 				if is_valid and randf() < 0.1:  # 10% chance to add as spawn point
 					spawn_points.append(pos)
@@ -270,13 +267,9 @@ func _generate_patrol_path(start_pos: Vector2i) -> Array:
 			# Check if position is valid
 			if _is_valid_position(next_pos):
 				# For patrol paths, try to follow similar heights
-				# Get average height for current position
-				var current_heights = tilemap.height_map.get(current_pos, {"nw": 0, "ne": 0, "se": 0, "sw": 0})
-				var current_avg_height = (current_heights["nw"] + current_heights["ne"] + current_heights["se"] + current_heights["sw"]) / 4.0
-				
-				# Get average height for next position
-				var next_heights = tilemap.height_map.get(next_pos, {"nw": 0, "ne": 0, "se": 0, "sw": 0})
-				var next_avg_height = (next_heights["nw"] + next_heights["ne"] + next_heights["se"] + next_heights["sw"]) / 4.0
+				# Get heights for current and next positions using proper methods
+				var current_avg_height = tilemap.get_height_offset(current_pos) / 10.0  # Convert back from pixels to height units
+				var next_avg_height = tilemap.get_height_offset(next_pos) / 10.0  # Convert back from pixels to height units
 				
 				# Only accept if height difference is not too large
 				if abs(current_avg_height - next_avg_height) <= 1:
@@ -311,10 +304,10 @@ func _is_valid_position(pos: Vector2i) -> bool:
 	if tilemap.has_collision(pos):
 		return false
 		
-	# Make sure it's not water
-	for tile_data in tilemap.tile_map.get(pos, []):
-		if tile_data.get("type") == "water":
-			return false
+	# Make sure it's not water or another unwalkable terrain type
+	var tile_type = tilemap.get_tile_type_from_height(pos)
+	if tile_type == "water":
+		return false
 	
 	return true
 
