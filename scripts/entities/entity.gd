@@ -1,7 +1,7 @@
 extends Node2D
 class_name Entity
 
-# Base entity class for all game entities (player, NPCs, etc.)
+# Base entity class for all game entities (NPCs, etc.)
 
 # Get reference to autoloaded GameManager
 @onready var game_manager = get_node("/root/GameManager")

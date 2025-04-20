@@ -10,7 +10,7 @@ func _ready():
 	
 	# Initialize systems
 	_initialize_tilemap()
-	_initialize_player()
+	# _initialize_player() # Removed player initialization
 	_initialize_environment()
 	_initialize_debug_ui()
 	
@@ -31,46 +31,8 @@ func _initialize_tilemap():
 	else:
 		push_error("Tilemap not found")
 
-func _initialize_player():
-	# Get player and set initial position
-	var player = $Player
-	if player:
-		# Position player in the middle of the map
-		var tilemap = $TileMap
-		if tilemap:
-			# Set player to a valid position (non-collision tile)
-			var valid_pos = _find_valid_player_position(tilemap)
-			player.set_grid_position(valid_pos)
-			print("Player positioned at grid: ", valid_pos)
-		else:
-			# Default position
-			player.set_world_position(Vector2(640, 360))
-			print("Player positioned at default location")
-	else:
-		push_error("Player not found")
-
-func _find_valid_player_position(tilemap) -> Vector2i:
-	# Find a valid (non-collision) position for the player
-	var center_x = 50  # Center of the generated terrain
-	var center_y = 50
-	
-	# Start at center and spiral outward to find a valid position
-	for radius in range(10):
-		for dx in range(-radius, radius + 1):
-			for dy in range(-radius, radius + 1):
-				# Only check positions on the perimeter of the current radius
-				if abs(dx) == radius or abs(dy) == radius:
-					var pos = Vector2i(center_x + dx, center_y + dy)
-					
-					# Check if this position is valid (no collision and not water)
-					if not tilemap.has_collision(pos):
-						# Check tile type
-						for tile_data in tilemap.tile_map.get(pos, []):
-							if tile_data.type != "water":
-								return pos
-	
-	# Fallback to center
-	return Vector2i(center_x, center_y)
+# Removed _initialize_player() function
+# Removed _find_valid_player_position() function
 
 func _initialize_environment():
 	# Initialize environment system
@@ -109,10 +71,7 @@ func _generate_system_info() -> String:
 	info += "FPS: " + str(Engine.get_frames_per_second()) + "\n"
 	info += "Renderer: " + RenderingServer.get_video_adapter_name() + "\n"
 	info += "----------------\n"
-	info += "Debug Controls:\n"
-	info += "- Move: WASD / Arrow Keys\n"
-	info += "- Click to move\n"
-	info += "- T: Talk to nearby NPC\n"
+	# Removed player-specific debug controls text
 	return info
 
 func _connect_ui_signals():
@@ -142,11 +101,7 @@ func _process(_delta):
 	if system_info:
 		system_info.text = _generate_system_info()
 	
-	# Check for dynamic terrain expansion around player
-	var player = $Player
-	var tilemap = $TileMap
-	if player and tilemap:
-		tilemap.check_terrain_expansion(player.grid_position)
+	# Removed player-dependent terrain expansion check
 
 # Signal handlers
 
@@ -194,32 +149,4 @@ func _on_weather_intensity_changed(value):
 		
 		environment.set_weather(weather_type, value)
 
-# Handle input for talking to NPCs
-func _unhandled_input(event):
-	if event is InputEventKey and event.pressed and event.keycode == KEY_T:
-		_talk_to_nearby_npc()
-
-func _talk_to_nearby_npc():
-	# Find the player
-	var player = $Player
-	if not player:
-		return
-		
-	# Get NPCs from the NPC manager
-	var npc_manager = $NPCManager
-	if not npc_manager:
-		return
-		
-	# Find the closest NPC within interaction range
-	var closest_npc = null
-	var closest_distance = 100.0  # Max interaction distance
-	
-	for npc in npc_manager.npcs:
-		var distance = player.position.distance_to(npc.position)
-		if distance < closest_distance:
-			closest_npc = npc
-			closest_distance = distance
-	
-	# If found a nearby NPC, make them speak
-	if closest_npc:
-		npc_manager.make_npc_speak(closest_npc)
+# Removed _unhandled_input and _talk_to_nearby_npc functions as they depended on the player

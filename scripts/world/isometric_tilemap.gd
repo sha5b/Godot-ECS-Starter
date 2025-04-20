@@ -11,6 +11,7 @@ const DebugRenderer = preload("res://scripts/world/debug_renderer.gd")
 
 # Get reference to autoloaded GameManager
 @onready var game_manager = get_node("/root/GameManager")
+@onready var camera_controller = get_parent().get_node("CameraController") # Get camera reference
 
 # Component references
 var grid_manager: IsometricGridManager
@@ -87,22 +88,26 @@ func _draw():
 	if not debug_draw:
 		return
 		
-	# Get player position to center grid if available
-	var player_grid_pos = Vector2i(int(get_viewport_rect().size.x / 2.0 / tile_width), 
-								int(get_viewport_rect().size.y / 2.0 / tile_height))
-	var player = get_parent().get_node("Player")
-	if player:
-		player_grid_pos = player.grid_position
+	# Get camera position to center grid
+	var camera_grid_pos = Vector2i.ZERO
+	if camera_controller:
+		camera_grid_pos = world_to_grid(camera_controller.global_position)
+	else:
+		# Fallback if camera not found (shouldn't happen in normal operation)
+		camera_grid_pos = Vector2i(int(get_viewport_rect().size.x / 2.0 / tile_width), 
+								   int(get_viewport_rect().size.y / 2.0 / tile_height))
 		
 	if debug_grid:
 		# Get the height map through the proper getter method
 		var height_map_copy = terrain_generator.get_height_map()
-		debug_renderer.draw_debug_grid(self, grid_manager, player_grid_pos, 
+		# Pass camera position instead of player position
+		debug_renderer.draw_debug_grid(self, grid_manager, camera_grid_pos, 
 									  height_map_copy)
 	
 	if game_manager.get_debug_status("collision") and collision_enabled:
 		var height_map_copy = terrain_generator.get_height_map()
-		debug_renderer.draw_debug_collision(self, grid_manager, player_grid_pos, 
+		# Pass camera position instead of player position
+		debug_renderer.draw_debug_collision(self, grid_manager, camera_grid_pos, 
 										   collision_map, height_map_copy)
 
 # API Methods
@@ -234,29 +239,4 @@ func expand_terrain(center_pos: Vector2i, radius: int = 10):
 			if not tile_map.has(grid_pos) or tile_map[grid_pos].size() == 0:
 				place_tile(grid_pos)
 
-func check_terrain_expansion(player_pos: Vector2i, expansion_threshold: int = 8):
-	# Check if we need to expand the terrain around the player
-	var needs_expansion = false
-	
-	# Check edges of visible area
-	var x_min = player_pos.x - visible_grid_width/2 + expansion_threshold
-	var x_max = player_pos.x + visible_grid_width/2 - expansion_threshold
-	var y_min = player_pos.y - visible_grid_height/2 + expansion_threshold
-	var y_max = player_pos.y + visible_grid_height/2 - expansion_threshold
-	
-	# Check for tiles at the edges
-	for x in [x_min, x_max]:
-		for y in range(y_min, y_max):
-			if not tile_map.has(Vector2i(x, y)) or tile_map[Vector2i(x, y)].size() == 0:
-				needs_expansion = true
-				break
-	
-	if not needs_expansion:
-		for y in [y_min, y_max]:
-			for x in range(x_min, x_max):
-				if not tile_map.has(Vector2i(x, y)) or tile_map[Vector2i(x, y)].size() == 0:
-					needs_expansion = true
-					break
-	
-	if needs_expansion:
-		expand_terrain(player_pos)
+# Removed check_terrain_expansion function as it depended on the player

@@ -1,10 +1,10 @@
 [gd_scene load_steps=6 format=3 uid="uid://b4lf41tkirh3g"]
 
 [ext_resource type="Script" uid="uid://eia5g8y70ykx" path="res://scripts/world/isometric_tilemap.gd" id="1_cqvpt"]
-[ext_resource type="Script" uid="uid://beinlgogpgexh" path="res://scripts/entities/player.gd" id="2_e7gtl"]
 [ext_resource type="Script" uid="uid://c6kppk1ta0eq5" path="res://scenes/main.gd" id="3_0x5d3"]
 [ext_resource type="Script" uid="uid://ch4x74prf72m5" path="res://scripts/systems/npc_manager.gd" id="4_1g8yu"]
 [ext_resource type="Script" uid="uid://dd25rhe8a5wby" path="res://scripts/systems/environment_system.gd" id="5_nrrmj"]
+[ext_resource type="Script" uid="uid://d1appohf1i53t" path="res://scripts/systems/camera_controller.gd" id="6_camctrl"]
 
 [node name="Main" type="Node2D"]
 script = ExtResource("3_0x5d3")
@@ -19,9 +19,9 @@ script = ExtResource("4_1g8yu")
 [node name="EnvironmentSystem" type="Node2D" parent="."]
 script = ExtResource("5_nrrmj")
 
-[node name="Player" type="Node2D" parent="."]
+[node name="CameraController" type="Camera2D" parent="."]
 position = Vector2(640, 360)
-script = ExtResource("2_e7gtl")
+script = ExtResource("6_camctrl")
 
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 

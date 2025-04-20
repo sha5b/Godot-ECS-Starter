@@ -18,15 +18,15 @@ var debug_grid: bool = true
 
 # Function to draw debug grid
 func draw_debug_grid(canvas: CanvasItem, grid_manager: IsometricGridManager, 
-					player_grid_pos: Vector2i, height_map: Dictionary):
+					camera_grid_pos: Vector2i, height_map: Dictionary): # Renamed parameter
 	# Draw the isometric grid (only visible portion)
 	if not debug_draw or not debug_grid:
 		return
 		
-	var start_x = max(0, player_grid_pos.x - visible_grid_width/2)
-	var end_x = min(world_size, player_grid_pos.x + visible_grid_width/2)
-	var start_y = max(0, player_grid_pos.y - visible_grid_height/2)
-	var end_y = min(world_size, player_grid_pos.y + visible_grid_height/2)
+	var start_x = max(0, camera_grid_pos.x - visible_grid_width/2) # Use camera_grid_pos
+	var end_x = min(world_size, camera_grid_pos.x + visible_grid_width/2) # Use camera_grid_pos
+	var start_y = max(0, camera_grid_pos.y - visible_grid_height/2) # Use camera_grid_pos
+	var end_y = min(world_size, camera_grid_pos.y + visible_grid_height/2) # Use camera_grid_pos
 	
 	for x in range(start_x, end_x):
 		for y in range(start_y, end_y):
@@ -53,7 +53,7 @@ func draw_debug_grid(canvas: CanvasItem, grid_manager: IsometricGridManager,
 			canvas.draw_polyline(points + [points[0]], Color(0.5, 0.5, 0.5, 0.3), 1.0)
 			
 			# Draw coordinate text (for debugging) - only for visible area
-			if abs(x - player_grid_pos.x) < 5 and abs(y - player_grid_pos.y) < 5:
+			if abs(x - camera_grid_pos.x) < 5 and abs(y - camera_grid_pos.y) < 5: # Use camera_grid_pos
 				canvas.draw_string(Control.new().get_theme_default_font(), 
 					Vector2(pos.x - 10, pos.y), 
 					str(x) + "," + str(y),
@@ -64,15 +64,15 @@ func draw_debug_grid(canvas: CanvasItem, grid_manager: IsometricGridManager,
 
 # Function to draw collision debug visualization
 func draw_debug_collision(canvas: CanvasItem, grid_manager: IsometricGridManager,
-						player_grid_pos: Vector2i, collision_map: Dictionary, height_map: Dictionary):
+						camera_grid_pos: Vector2i, collision_map: Dictionary, height_map: Dictionary): # Renamed parameter
 	# Draw collision for tiles
 	if not debug_draw:
 		return
 		
-	var start_x = max(0, player_grid_pos.x - visible_grid_width/2)
-	var end_x = min(world_size, player_grid_pos.x + visible_grid_width/2)
-	var start_y = max(0, player_grid_pos.y - visible_grid_height/2)
-	var end_y = min(world_size, player_grid_pos.y + visible_grid_height/2)
+	var start_x = max(0, camera_grid_pos.x - visible_grid_width/2) # Use camera_grid_pos
+	var end_x = min(world_size, camera_grid_pos.x + visible_grid_width/2) # Use camera_grid_pos
+	var start_y = max(0, camera_grid_pos.y - visible_grid_height/2) # Use camera_grid_pos
+	var end_y = min(world_size, camera_grid_pos.y + visible_grid_height/2) # Use camera_grid_pos
 	
 	for x in range(start_x, end_x):
 		for y in range(start_y, end_y):
