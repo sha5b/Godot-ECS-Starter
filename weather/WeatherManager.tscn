@@ -1,10 +1,6 @@
-[gd_scene load_steps=2 format=3 uid="uid://e8p2q3r4s5t6u"] ; Unique UID for this scene
+[gd_scene load_steps=2 format=3 uid="uid://beb651uu8xyf3"]
 
-[ext_resource type="Script" path="res://weather/WeatherManager.gd" id="1_weatherscript"]
+[ext_resource type="Script" uid="uid://bkfap7ouwohlh" path="res://weather/WeatherManager.gd" id="1_weatherscript"]
 
 [node name="WeatherManager" type="Node"]
 script = ExtResource("1_weatherscript")
-
-; Add child nodes for EffectController etc. here later if needed
-; [node name="EffectController" type="Node" parent="."]
-; script = ExtResource("res://weather/EffectController.gd") ; Assuming this script exists

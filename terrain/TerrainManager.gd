@@ -9,7 +9,7 @@ class_name TerrainManager
 # Terrain Noise
 @export_group("Terrain Noise")
 @export var noise_scale: float = 0.04 # Slightly larger features
-@export var noise_octaves: int = 5 # Fewer octaves can sometimes look more natural
+@export var noise_octaves: int = 4 # Fewer octaves can sometimes look more natural
 @export var noise_persistence: float = 0.55 # Slightly more roughness
 @export var height_multiplier: float = 30.0 # Even more height difference
 @export var water_level: float = 0.35 # Adjust water level slightly

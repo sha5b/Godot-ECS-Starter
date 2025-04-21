@@ -5,7 +5,7 @@ class_name TerrainRenderer
 
 # --- Configuration ---
 @export var tile_size: Vector2 = Vector2(64, 32) # Isometric tile dimensions
-@export var height_vertical_scale: float = 16.0 # How much height affects vertical position
+@export var height_vertical_scale: float = 32.0 # How much height affects vertical position
 # Biome Colors
 @export_group("Biome Colors")
 @export var water_color: Color = Color("4a90e2")

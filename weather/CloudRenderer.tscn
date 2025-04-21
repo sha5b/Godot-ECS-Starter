@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://b7h5g6k8jxvnm"]
+
+[ext_resource type="Script" uid="uid://dql8y7xnmk3vj" path="res://weather/CloudRenderer.gd" id="1_cloudscript"]
+
+[node name="CloudRenderer" type="Node2D"]
+script = ExtResource("1_cloudscript")

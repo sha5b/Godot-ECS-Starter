@@ -1,10 +1,11 @@
-[gd_scene load_steps=6 format=3 uid="uid://b5w8q7h6x5y1k"]
+[gd_scene load_steps=7 format=3 uid="uid://b5w8q7h6x5y1k"]
 
 [ext_resource type="Script" uid="uid://ctacmxer061mu" path="res://Main.gd" id="1_mainscript"]
 [ext_resource type="PackedScene" uid="uid://c6f0g1h2i3j4l" path="res://camera/IsometricCamera.tscn" id="2_camera"]
 [ext_resource type="PackedScene" uid="uid://c5500pt3wtex" path="res://terrain/TerrainManager.tscn" id="3_terrain"]
 [ext_resource type="PackedScene" uid="uid://beb651uu8xyf3" path="res://weather/WeatherManager.tscn" id="4_weather"]
-[ext_resource type="Resource" path="res://weather/states/clear.tres" id="5_clearweather"]
+[ext_resource type="Resource" uid="uid://c1sgb34qepqv4" path="res://weather/states/clear.tres" id="5_clearweather"]
+[ext_resource type="PackedScene" uid="uid://b7h5g6k8jxvnm" path="res://weather/CloudRenderer.tscn" id="6_clouds"]
 
 [node name="Main" type="Node"]
 script = ExtResource("1_mainscript")
@@ -15,3 +16,5 @@ script = ExtResource("1_mainscript")
 
 [node name="WeatherManager" parent="." instance=ExtResource("4_weather")]
 default_weather_state = ExtResource("5_clearweather")
+
+[node name="CloudRenderer" parent="." instance=ExtResource("6_clouds")]
