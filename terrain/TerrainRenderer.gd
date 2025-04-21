@@ -15,7 +15,8 @@ class_name TerrainRenderer
 @export var void_color: Color = Color.BLACK # Color for edges or undefined areas
 # Shading
 @export_group("Shading")
-@export var shade_intensity: float = 0.3 # How much to darken/lighten at extremes (0-1)
+@export var shade_intensity: float = 0.45 # Increased: How much to darken/lighten at extremes (0-1)
+@export var grass_variation_factor: float = 0.1 # How much grass color varies pre-shading
 
 # --- References ---
 @onready var terrain_manager: TerrainManager = get_parent()
@@ -130,14 +131,26 @@ func _get_vertex_data(map_coord: Vector2i) -> Dictionary:
 
 	# Determine vertex color based on biome and height
 	var base_biome_color: Color
-	match biome:
-		"water": base_biome_color = water_color
-		"grass": base_biome_color = grass_color
-		"dirt": base_biome_color = dirt_color
-		"rock": base_biome_color = rock_color
-		_: base_biome_color = void_color # Use void color for out-of-bounds or errors
-
 	var height_normalized = clamp(height / terrain_manager.height_multiplier, 0.0, 1.0) if terrain_manager.height_multiplier != 0 else 0
+
+	match biome:
+		"water":
+			base_biome_color = water_color
+			# Keep water color consistent, ignore height variation for base color
+		"grass":
+			# Add subtle variation to base grass color based on height *before* shading
+			var grass_variation = (height_normalized - 0.5) * grass_variation_factor
+			base_biome_color = grass_color.lightened(grass_variation)
+		"dirt":
+			base_biome_color = dirt_color
+			# Could add variation here too if desired
+		"rock":
+			base_biome_color = rock_color
+			# Could add variation here too if desired
+		_:
+			base_biome_color = void_color # Use void color for out-of-bounds or errors
+
+	# Apply main height shading (darken/lighten) based on normalized height
 	var dark_shade = base_biome_color.darkened(shade_intensity)
 	var light_shade = base_biome_color.lightened(shade_intensity)
 	var vertex_color = dark_shade.lerp(light_shade, height_normalized)
