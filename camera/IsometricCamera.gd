@@ -6,7 +6,7 @@ class_name IsometricCamera
 @export var pan_speed: float = 500.0
 @export var zoom_speed: float = 0.1
 @export var min_zoom: float = 0.5
-@export var max_zoom: float = 3.0
+@export var max_zoom: float = 6.0
 @export var smoothing_factor: float = 0.1 # Lower value = smoother/slower follow
 
 # --- State ---

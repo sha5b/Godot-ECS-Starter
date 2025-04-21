@@ -240,6 +240,41 @@ func clear_world() -> void:
 
 
 # --- Helper Functions ---
+
+func get_world_bounds() -> Rect2:
+	"""Calculates the approximate world-space bounding box of the terrain grid."""
+	if not terrain_manager:
+		printerr("TerrainManager not available for bounds calculation.")
+		return Rect2(0, 0, 0, 0)
+
+	var ws = terrain_manager.world_size
+	if ws.x <= 0 or ws.y <= 0:
+		printerr("Invalid world_size in TerrainManager.")
+		return Rect2(0, 0, 0, 0)
+
+	# Calculate the isometric positions of the four corner map coordinates
+	var p00 = map_to_iso(Vector2(0, 0))
+	var pX0 = map_to_iso(Vector2(ws.x, 0))
+	var p0Y = map_to_iso(Vector2(0, ws.y))
+	var pXY = map_to_iso(Vector2(ws.x, ws.y))
+
+	# Find the min and max world coordinates based on these corners
+	# Note: This doesn't account for height variation, but gives the base grid bounds.
+	var min_x = min(p00.x, pX0.x, p0Y.x, pXY.x)
+	var max_x = max(p00.x, pX0.x, p0Y.x, pXY.x)
+	var min_y = min(p00.y, pX0.y, p0Y.y, pXY.y)
+	var max_y = max(p00.y, pX0.y, p0Y.y, pXY.y)
+
+	# Expand slightly to ensure coverage, especially if using tile centers later
+	var padding = tile_size.x # Add padding based on tile width
+	min_x -= padding / 2
+	max_x += padding / 2
+	min_y -= padding # Add more vertical padding as iso tiles are tall
+	max_y += padding
+
+	return Rect2(min_x, min_y, max_x - min_x, max_y - min_y)
+
+
 func map_to_iso(map_pos: Vector2) -> Vector2:
 	# Basic isometric conversion
 	var iso_x = (map_pos.x - map_pos.y) * (tile_size.x / 2.0)
