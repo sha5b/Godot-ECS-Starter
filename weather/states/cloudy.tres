@@ -10,5 +10,4 @@ precipitation_intensity = 0.0
 wind_direction = Vector2(0.8, 0.6) # Slightly different wind direction
 wind_speed = 4.0 # Slightly stronger wind
 temperature_modifier = -2.0 # A bit cooler
-cloud_coverage = 0.8 # Much higher cloud coverage
 visibility = 0.8 # Slightly reduced visibility

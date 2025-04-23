@@ -8,7 +8,7 @@ class_name WeatherState
 @export var wind_direction: Vector2 = Vector2.RIGHT # Normalized direction
 @export var wind_speed: float = 5.0 # In some relevant unit (e.g., m/s)
 @export var temperature_modifier: float = 0.0 # Degrees Celsius offset from base
-@export var cloud_coverage: float = 0.1 # 0.0 (clear) to 1.0 (overcast)
+# @export var cloud_coverage: float = 0.1 # 0.0 (clear) to 1.0 (overcast) # Removed cloud coverage
 @export var visibility: float = 1.0 # 0.0 (dense fog) to 1.0 (clear)
 
 # --- Visual/Audio Effects (Placeholders - Link to actual effect resources later) ---
