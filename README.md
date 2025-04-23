@@ -28,7 +28,7 @@ This project provides a basic framework for building a game using an Entity-Comp
 *   **`weather/WeatherState.gd`**: A `Resource` script defining the properties of a specific weather condition.
     *   Includes parameters like precipitation type/intensity, wind, temperature modifier, cloud coverage, etc.
     *   These resources (`.tres` files like `clear.tres`, `cloudy.tres`) are used by the `WeatherManager` to define the active weather.
-*   **`weather/CloudRenderer.gd`**: (Assumed functionality based on name) Likely handles the visual rendering of clouds based on the current `WeatherState`'s cloud coverage.
+
 
 ## Camera
 
