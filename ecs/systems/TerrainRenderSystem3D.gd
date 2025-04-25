@@ -10,22 +10,20 @@ func update(world, delta):
 		terrain_node = Node3D.new()
 		if world.get_tree() and world.get_tree().current_scene:
 			world.get_tree().current_scene.add_child(terrain_node)
-		_draw_terrain(world)
+	_draw_terrain(world)
 
 func _draw_terrain(world):
 	print("Drawing 3D terrain!")
 	for child in terrain_node.get_children():
 		child.queue_free()
-	for entity_id in world.query(["Terrain"]):
-		var terrain = world.get_components("Terrain")[entity_id]
-		for y in range(terrain.height):
-			for x in range(terrain.width):
-				var mesh_instance = MeshInstance3D.new()
-				var mesh = BoxMesh.new()
-				mesh.size = Vector3(cell_size, 0.2, cell_size)
-				mesh_instance.mesh = mesh
-				var mat = StandardMaterial3D.new()
-				mat.albedo_color = colors[terrain.data[y][x]]
-				mesh_instance.material_override = mat
-				mesh_instance.position = Vector3(x * cell_size, 0, y * cell_size)
-				terrain_node.add_child(mesh_instance)
+	# DEBUG: Place a single green plane at the terrain location
+	var mesh_instance = MeshInstance3D.new()
+	var mesh = PlaneMesh.new()
+	mesh.size = Vector2(320, 320) # 160x2 = 320
+	mesh_instance.mesh = mesh
+	var mat = StandardMaterial3D.new()
+	mat.albedo_color = Color(0, 1, 0) # bright green
+	mesh_instance.material_override = mat
+	mesh_instance.position = Vector3(160, 0, 160) # Centered if terrain is 320x320
+	terrain_node.add_child(mesh_instance)
+	print("DEBUG: terrain_node children count:", terrain_node.get_child_count())

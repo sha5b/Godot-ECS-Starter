@@ -6,3 +6,5 @@
 script = ExtResource("1_mainscript")
 
 [node name="Camera3D" type="Camera3D" parent="."]
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
