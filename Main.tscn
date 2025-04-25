@@ -2,5 +2,7 @@
 
 [ext_resource type="Script" uid="uid://ctacmxer061mu" path="res://Main.gd" id="1_mainscript"]
 
-[node name="Main" type="Node"]
+[node name="Main" type="Node3D"]
 script = ExtResource("1_mainscript")
+
+[node name="Camera3D" type="Camera3D" parent="."]
