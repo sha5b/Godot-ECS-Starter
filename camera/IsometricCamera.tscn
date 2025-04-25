@@ -1,6 +1,0 @@
-[gd_scene load_steps=2 format=3 uid="uid://c6f0g1h2i3j4l"] ; Unique UID for this scene
-
-[ext_resource type="Script" path="res://camera/IsometricCamera.gd" id="1_camscript"]
-
-[node name="IsometricCamera" type="Camera2D"]
-script = ExtResource("1_camscript")

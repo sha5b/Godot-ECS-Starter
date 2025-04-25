@@ -1,6 +1,0 @@
-[gd_scene load_steps=2 format=3 uid="uid://beb651uu8xyf3"]
-
-[ext_resource type="Script" uid="uid://bkfap7ouwohlh" path="res://weather/WeatherManager.gd" id="1_weatherscript"]
-
-[node name="WeatherManager" type="Node"]
-script = ExtResource("1_weatherscript")
