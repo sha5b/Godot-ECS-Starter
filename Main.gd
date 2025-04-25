@@ -18,9 +18,15 @@ func _ready() -> void:
 	# DEBUG: Force Camera3D position and orientation
 	var cam = get_node_or_null("Camera3D")
 	if cam:
-		cam.transform.origin = Vector3(160, 200, 320)
-		cam.look_at(Vector3(160, 0, 160), Vector3.UP)
+		var width = 80
+		var height = 80
+		var cell_size = 2.0
+		var center_x = (width * cell_size) / 2.0
+		var center_z = (height * cell_size) / 2.0
+		cam.transform.origin = Vector3(center_x, 200, center_z + 160)
+		cam.look_at(Vector3(center_x, 0, center_z), Vector3.UP)
 		cam.make_current()
+
 
 	# Initialize ECS world
 	var world = World.new()

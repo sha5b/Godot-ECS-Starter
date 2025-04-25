@@ -10,20 +10,45 @@ func update(world, delta):
 		terrain_node = Node3D.new()
 		if world.get_tree() and world.get_tree().current_scene:
 			world.get_tree().current_scene.add_child(terrain_node)
-	_draw_terrain(world)
+		generate_terrain()
 
-func _draw_terrain(world):
-	print("Drawing 3D terrain!")
+func generate_terrain():
+	print("Generating 3D terrain!")
 	for child in terrain_node.get_children():
 		child.queue_free()
-	# DEBUG: Place a single green plane at the terrain location
-	var mesh_instance = MeshInstance3D.new()
-	var mesh = PlaneMesh.new()
-	mesh.size = Vector2(320, 320) # 160x2 = 320
-	mesh_instance.mesh = mesh
-	var mat = StandardMaterial3D.new()
-	mat.albedo_color = Color(0, 1, 0) # bright green
-	mesh_instance.material_override = mat
-	mesh_instance.position = Vector3(160, 0, 160) # Centered if terrain is 320x320
-	terrain_node.add_child(mesh_instance)
-	print("DEBUG: terrain_node children count:", terrain_node.get_child_count())
+
+	# Terrain parameters
+	var width = 80
+	var height = 80
+	var center_x = (width * cell_size) / 2.0
+	var center_z = (height * cell_size) / 2.0
+
+	# Noise setup (Godot 4.x: FastNoiseLite)
+	var noise = FastNoiseLite.new()
+	noise.seed = randi()
+	noise.frequency = 1.0 / 32.0
+	noise.fractal_octaves = 4
+	noise.fractal_lacunarity = 2.0
+	noise.fractal_gain = 0.5
+
+	for y in range(height):
+		for x in range(width):
+			var mesh_instance = MeshInstance3D.new()
+			var mesh = BoxMesh.new()
+			mesh.size = Vector3(cell_size, 0.2, cell_size)
+			# Height from noise
+			var n = noise.get_noise_2d(x, y)
+			var h = lerp(0.2, 8.0, (n + 1.0) / 2.0)
+			mesh_instance.mesh = mesh
+			mesh_instance.scale.y = h
+			# Color by height
+			var mat = StandardMaterial3D.new()
+			if h < 2.5:
+				mat.albedo_color = Color(0.1, 0.7, 0.2) # green
+			elif h < 5.5:
+				mat.albedo_color = Color(0.6, 0.4, 0.1) # brown
+			else:
+				mat.albedo_color = Color(1, 1, 1) # white (snow)
+			mesh_instance.material_override = mat
+			mesh_instance.position = Vector3(x * cell_size, 0, y * cell_size)
+			terrain_node.add_child(mesh_instance)
