@@ -7,6 +7,7 @@ const MoveSystem = preload("res://ecs/systems/MoveSystem.gd")
 const Position = preload("res://ecs/components/Position.gd")
 const Velocity = preload("res://ecs/components/Velocity.gd")
 const Terrain = preload("res://ecs/components/Terrain.gd")
+const NPC = preload("res://ecs/components/NPC.gd")
 const TerrainRenderSystem3D = preload("res://ecs/systems/TerrainRenderSystem3D.gd")
 
 # @onready var camera: IsometricCamera = $IsometricCamera
@@ -33,6 +34,7 @@ func _ready() -> void:
 	add_child(world)
 	# Register systems
 	world.add_system(MoveSystem.new())
+	world.add_system(preload("res://ecs/systems/NPCRenderSystem3D.gd").new())
 	world.add_system(TerrainRenderSystem3D.new())
 	# Create sample entity with Position and Velocity
 	var entity = world.create_entity()
@@ -41,6 +43,15 @@ func _ready() -> void:
 	# Create terrain entity
 	var terrain_entity = world.create_entity()
 	world.add_component(terrain_entity, Terrain.new(160, 160))
+
+	# Create NPC entity
+	var npc_entity = world.create_entity()
+	var npc_position = Position.new()
+	npc_position.position = Vector2(10, 10)
+	world.add_component(npc_entity, npc_position)
+	world.add_component(npc_entity, NPC.new())
+	print("[MAIN DEBUG] Created NPC entity with id:", npc_entity.id)
+	print("[MAIN DEBUG] World components after NPC creation:", world.components)
 	# Initialization logic can go here
 	# Example: Connect camera movement to terrain manager for region updates
 	# if camera and terrain_manager:

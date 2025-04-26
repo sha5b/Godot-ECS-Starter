@@ -16,7 +16,8 @@ func create_entity() -> Entity:
     return entity
 
 func add_component(entity: Entity, component: Component) -> void:
-    var comp_type = component.get_class()
+    var comp_type = component.get_type()
+    print("[WORLD DEBUG] Adding component: get_type=", comp_type)
     if not components.has(comp_type):
         components[comp_type] = {}
     components[comp_type][entity.id] = component

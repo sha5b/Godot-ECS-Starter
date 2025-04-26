@@ -5,6 +5,9 @@ var width: int
 var height: int
 var data: Array = []
 
+func get_type():
+	return "Terrain"
+
 func _init(_width: int = 160, _height: int = 160):
 	width = _width
 	height = _height
