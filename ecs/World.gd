@@ -43,6 +43,15 @@ func query(comp_classes: Array) -> Array:
 func add_system(system: System) -> void:
     systems.append(system)
 
+# Removes an entity and all its components by entity ID
+func remove_entity(entity_id: int) -> void:
+    if entities.has(entity_id):
+        entities.erase(entity_id)
+        # Remove all components for this entity
+        for comp_type in components.keys():
+            if components[comp_type].has(entity_id):
+                components[comp_type].erase(entity_id)
+
 func _process(delta: float) -> void:
     for system in systems:
         system.update(self, delta)

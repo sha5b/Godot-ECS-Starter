@@ -41,6 +41,8 @@ func _ready() -> void:
 	world.add_system(preload("res://ecs/systems/NPCRenderSystem3D.gd").new())
 	world.add_system(ResourceRenderSystem3D.new())
 	world.add_system(TerrainRenderSystem3D.new())
+	world.add_system(preload("res://ecs/systems/ResourceCollectionSystem.gd").new())
+	world.add_system(preload("res://ecs/systems/NPCBehaviorSystem.gd").new())
 	# Create sample entity with Position and Velocity
 	var entity = world.create_entity()
 	world.add_component(entity, Position.new())
