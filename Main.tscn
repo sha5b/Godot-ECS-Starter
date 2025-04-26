@@ -1,10 +1,13 @@
-[gd_scene load_steps=2 format=3 uid="uid://b5w8q7h6x5y1k"]
+[gd_scene load_steps=3 format=3 uid="uid://b5w8q7h6x5y1k"]
 
 [ext_resource type="Script" uid="uid://ctacmxer061mu" path="res://Main.gd" id="1_mainscript"]
+[ext_resource type="Script" uid="uid://bbeyq8whtinhf" path="res://ecs/CameraController.gd" id="2_uu6xs"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_mainscript")
 
 [node name="Camera3D" type="Camera3D" parent="."]
+script = ExtResource("2_uu6xs")
+camera_path = NodePath(".")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]

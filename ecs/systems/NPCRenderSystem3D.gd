@@ -63,3 +63,21 @@ func _draw_npcs(world):
 		label.position = npc_pos + Vector3(0, 1.5, 0)
 		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		npc_node.add_child(label)
+
+		# Debug: Draw path if Pathfinding exists
+		if world.get_components("Pathfinding").has(id):
+			var path = world.get_components("Pathfinding")[id].path
+			if path.size() > 0:
+				var im = ImmediateMesh.new()
+				var path_mat = StandardMaterial3D.new()
+				path_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+				path_mat.albedo_color = Color(1, 1, 0) # Yellow
+				im.surface_begin(Mesh.PRIMITIVE_LINE_STRIP, path_mat)
+				im.surface_add_vertex(npc_pos)
+				for wp in path:
+					var wp3 = Vector3(wp.x * cell_size, h, wp.y * cell_size)
+					im.surface_add_vertex(wp3)
+				im.surface_end()
+				var path_mesh_instance = MeshInstance3D.new()
+				path_mesh_instance.mesh = im
+				npc_node.add_child(path_mesh_instance)
