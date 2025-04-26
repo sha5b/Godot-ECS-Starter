@@ -1,5 +1,5 @@
 extends "res://ecs/Component.gd"
-class_name NPC
+class_name Npc
 
 # Marker component for NPC entities
 
