@@ -50,6 +50,7 @@ func _ready() -> void:
 	npc_position.position = Vector2(10, 10)
 	world.add_component(npc_entity, npc_position)
 	world.add_component(npc_entity, NPC.new())
+	print("[MAIN DEBUG] Created NPC entity with id:", npc_entity.id)
 	# Initialization logic can go here
 	# Example: Connect camera movement to terrain manager for region updates
 	# if camera and terrain_manager:

@@ -17,6 +17,12 @@ func _draw_npcs(world):
 	# Remove previous NPC visuals
 	for child in npc_node.get_children():
 		child.queue_free()
+	# Debug: print all entity IDs with Position and with NPC
+	var position_ids = world.get_components("Position").keys()
+	var npc_ids = world.get_components("NPC").keys()
+	print("[NPC DEBUG] Entities with Position:", position_ids)
+	print("[NPC DEBUG] Entities with NPC:", npc_ids)
+
 	# Get all entities with Position and NPC
 	var ids = world.query(["Position", "NPC"])
 	var pos_map = world.get_components("Position")
@@ -44,5 +50,16 @@ func _draw_npcs(world):
 		var y = int(pos2d.y)
 		var n = noise.get_noise_2d(x, y)
 		var h = lerp(0.2, 8.0, (n + 1.0) / 2.0)
-		mesh_instance.position = Vector3(pos2d.x * cell_size, h, pos2d.y * cell_size)
+		var npc_pos = Vector3(pos2d.x * cell_size, h, pos2d.y * cell_size)
+		mesh_instance.position = npc_pos
 		npc_node.add_child(mesh_instance)
+
+		# Print debug info
+		print("[NPC DEBUG] Entity ID: ", id, " Position: ", npc_pos)
+
+		# Add a floating Label3D above the NPC
+		var label = Label3D.new()
+		label.text = "NPC " + str(id)
+		label.position = npc_pos + Vector3(0, 1.5, 0)
+		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		npc_node.add_child(label)
