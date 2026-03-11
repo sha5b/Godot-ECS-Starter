@@ -1,0 +1,40 @@
+[gd_scene format=3 uid="uid://btcpbxm58nt14"]
+
+[ext_resource type="Script" uid="uid://27ytyiql7wsn" path="res://systems/fauna/fauna_system.gd" id="1_fs"]
+[ext_resource type="Script" uid="uid://dbyj1uyxiwvco" path="res://systems/fauna/fauna_config.gd" id="2_fc"]
+[ext_resource type="PackedScene" path="res://systems/fauna/content/deer.tscn" id="3_deer"]
+[ext_resource type="PackedScene" path="res://systems/fauna/content/rabbit.tscn" id="4_rabbit"]
+[ext_resource type="PackedScene" path="res://systems/fauna/content/bird.tscn" id="5_bird"]
+[ext_resource type="PackedScene" path="res://systems/fauna/content/bat.tscn" id="6_bat"]
+[ext_resource type="PackedScene" path="res://systems/fauna/content/spider.tscn" id="7_spider"]
+[ext_resource type="PackedScene" path="res://systems/fauna/content/lizard.tscn" id="8_lizard"]
+[ext_resource type="PackedScene" path="res://systems/fauna/content/fish.tscn" id="9_fish"]
+[ext_resource type="PackedScene" path="res://systems/fauna/content/jellyfish.tscn" id="10_jellyfish"]
+[ext_resource type="PackedScene" path="res://systems/fauna/content/whale.tscn" id="11_whale"]
+
+[node name="FaunaSystem" type="Node3D" unique_id=735106033]
+script = ExtResource("1_fs")
+system_name = &"FaunaSystem"
+priority = 35
+
+[node name="FaunaConfig" type="Node" parent="." unique_id=1318223089]
+script = ExtResource("2_fc")
+base_density = 30
+
+[node name="Deer" parent="." unique_id=1028462902 instance=ExtResource("3_deer")]
+
+[node name="Rabbit" parent="." unique_id=332350882 instance=ExtResource("4_rabbit")]
+
+[node name="Bird" parent="." unique_id=462682685 instance=ExtResource("5_bird")]
+
+[node name="Bat" parent="." unique_id=373304904 instance=ExtResource("6_bat")]
+
+[node name="Spider" parent="." unique_id=835308485 instance=ExtResource("7_spider")]
+
+[node name="Lizard" parent="." unique_id=904563694 instance=ExtResource("8_lizard")]
+
+[node name="Fish" parent="." unique_id=2023951421 instance=ExtResource("9_fish")]
+
+[node name="Jellyfish" parent="." unique_id=1251620813 instance=ExtResource("10_jellyfish")]
+
+[node name="Whale" parent="." unique_id=1347168219 instance=ExtResource("11_whale")]

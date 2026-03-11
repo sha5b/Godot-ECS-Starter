@@ -1,0 +1,16 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://systems/biome/biome_data.gd" id="1_bd"]
+
+[node name="Tundra" type="Node"]
+script = ExtResource("1_bd")
+biome_name = &"tundra"
+terrain_color = Color(0.60, 0.65, 0.55, 1)
+ideal_temperature = 0.1
+temperature_tolerance = 0.15
+ideal_moisture = 0.3
+moisture_tolerance = 0.35
+ideal_height = 0.25
+height_tolerance = 0.35
+flora_density_multiplier = 0.15
+fauna_density_multiplier = 0.18

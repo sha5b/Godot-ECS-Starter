@@ -1,0 +1,85 @@
+[gd_scene format=3 uid="uid://fpqyprxg46ct"]
+
+[ext_resource type="Script" uid="uid://ea1sb1aigjbv" path="res://systems/base/world.gd" id="1_world"]
+[ext_resource type="Script" uid="uid://vqss044f6hlo" path="res://systems/base/chunk_manager.gd" id="2_cm"]
+[ext_resource type="PackedScene" uid="uid://cbhwd05gs4gll" path="res://systems/terrain/terrain_system.tscn" id="3_terrain"]
+[ext_resource type="PackedScene" path="res://systems/biome/biome_system.tscn" id="4_biome"]
+[ext_resource type="PackedScene" path="res://systems/weather/weather_system.tscn" id="5_weather"]
+[ext_resource type="PackedScene" uid="uid://coywvyrequaps" path="res://systems/flora/flora_system.tscn" id="6_flora"]
+[ext_resource type="PackedScene" path="res://scenes/player/third_person_player.tscn" id="7_player"]
+[ext_resource type="Script" uid="uid://dt7s1q0l40s01" path="res://scenes/debug_hud.gd" id="8_hud"]
+[ext_resource type="PackedScene" path="res://systems/water/water_system.tscn" id="9_water"]
+[ext_resource type="PackedScene" path="res://systems/navigation/navigation_system.tscn" id="10_nav"]
+[ext_resource type="PackedScene" uid="uid://btcpbxm58nt14" path="res://systems/fauna/fauna_system.tscn" id="11_fauna"]
+[ext_resource type="Shader" uid="uid://j3ejrbhy12mv" path="res://systems/weather/cloud_sky.gdshader" id="12_cloud_shader"]
+[ext_resource type="PackedScene" uid="uid://dky52rs3bbg4q" path="res://systems/weather/cloud_system.tscn" id="14_cloud"]
+[ext_resource type="PackedScene" path="res://systems/river/river_system.tscn" id="15_river"]
+[ext_resource type="PackedScene" path="res://systems/geo/geo_system.tscn" id="16_geo"]
+[ext_resource type="PackedScene" path="res://systems/weather/weather_volume_system.tscn" id="17_weather_volume"]
+[ext_resource type="PackedScene" path="res://systems/foliage/foliage_system.tscn" id="18_foliage"]
+
+[sub_resource type="ShaderMaterial" id="SkyMat_1"]
+shader = ExtResource("12_cloud_shader")
+shader_parameter/sky_top_color = Color(0.35, 0.55, 0.85, 1)
+shader_parameter/sky_horizon_color = Color(0.65, 0.75, 0.85, 1)
+shader_parameter/ground_color = Color(0.15, 0.12, 0.1, 1)
+shader_parameter/sun_direction = Vector3(0, 0.4, -1)
+shader_parameter/sun_color = Color(1, 0.95, 0.85, 1)
+shader_parameter/sun_size = 0.02
+
+[sub_resource type="Sky" id="Sky_1"]
+sky_material = SubResource("SkyMat_1")
+
+[sub_resource type="Environment" id="Env_1"]
+background_mode = 2
+sky = SubResource("Sky_1")
+tonemap_mode = 2
+ssao_enabled = true
+fog_enabled = true
+fog_light_color = Color(0.7, 0.75, 0.8, 1)
+fog_density = 0.002
+
+[node name="World" type="Node3D" unique_id=1518519948]
+script = ExtResource("1_world")
+
+[node name="ChunkManager" type="Node" parent="." unique_id=1461802355]
+script = ExtResource("2_cm")
+
+[node name="GeoSystem" parent="." unique_id=199110321 instance=ExtResource("16_geo")]
+
+[node name="TerrainSystem" parent="." unique_id=1196887216 instance=ExtResource("3_terrain")]
+
+[node name="WaterSystem" parent="." unique_id=2136401088 instance=ExtResource("9_water")]
+
+[node name="NavigationSystem" parent="." unique_id=1334541066 instance=ExtResource("10_nav")]
+
+[node name="RiverSystem" parent="." unique_id=92581234 instance=ExtResource("15_river")]
+
+[node name="BiomeSystem" parent="." unique_id=601082138 instance=ExtResource("4_biome")]
+transform = Transform3D(0.99961203, 0.027851852, 0, -0.027851852, 0.99961203, 0, 0, 0, 1, 0, 0, 0)
+
+[node name="WeatherSystem" parent="." unique_id=1217904423 instance=ExtResource("5_weather")]
+
+[node name="CloudSystem" parent="." unique_id=738867621 instance=ExtResource("14_cloud")]
+
+[node name="WeatherVolumeSystem" parent="." unique_id=838201640 instance=ExtResource("17_weather_volume")]
+
+[node name="FoliageSystem" parent="." unique_id=207308145 instance=ExtResource("18_foliage")]
+
+[node name="FloraSystem" parent="." unique_id=304973743 instance=ExtResource("6_flora")]
+
+[node name="FaunaSystem" parent="." unique_id=117331885 instance=ExtResource("11_fauna")]
+
+[node name="Player" parent="." unique_id=171199750 instance=ExtResource("7_player")]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1043160145]
+environment = SubResource("Env_1")
+
+[node name="DebugHUD" type="Control" parent="." unique_id=29056173]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("8_hud")

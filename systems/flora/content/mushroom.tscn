@@ -1,0 +1,45 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://systems/flora/flora_entry.gd" id="1_fe"]
+
+[sub_resource type="CylinderMesh" id="Stem"]
+top_radius = 0.06
+bottom_radius = 0.08
+height = 0.3
+radial_segments = 6
+
+[sub_resource type="SphereMesh" id="Cap"]
+radius = 0.18
+height = 0.12
+radial_segments = 8
+rings = 3
+
+[sub_resource type="StandardMaterial3D" id="StemMat"]
+albedo_color = Color(0.85, 0.82, 0.72, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="CapMat"]
+albedo_color = Color(0.65, 0.25, 0.18, 1)
+roughness = 0.85
+
+[node name="Mushroom" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"mushroom"
+spawn_weight = 2.0
+min_height = 0.01
+max_height = 0.4
+scale_min = 0.6
+scale_max = 1.0
+allowed_biomes = Array[StringName]([&"cave_interior", &"swamp", &"forest", &"karst"])
+density_multiplier = 1.0
+random_rotation = true
+
+[node name="Stem" type="MeshInstance3D" parent="."]
+mesh = SubResource("Stem")
+material_override = SubResource("StemMat")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.15, 0)
+
+[node name="Cap" type="MeshInstance3D" parent="."]
+mesh = SubResource("Cap")
+material_override = SubResource("CapMat")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.34, 0)

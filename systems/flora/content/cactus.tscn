@@ -1,0 +1,31 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://systems/flora/flora_entry.gd" id="1_fe"]
+
+[sub_resource type="CylinderMesh" id="Body"]
+top_radius = 0.12
+bottom_radius = 0.15
+height = 1.2
+
+[sub_resource type="StandardMaterial3D" id="Mat"]
+albedo_color = Color(0.25, 0.50, 0.20, 1)
+
+[node name="Cactus" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"cactus"
+spawn_weight = 2.0
+min_height = 0.02
+max_height = 0.4
+scale_min = 0.8
+scale_max = 1.3
+allowed_biomes = Array[StringName]([&"desert", &"savanna"])
+density_multiplier = 1.0
+random_rotation = true
+hue_variation = 0.02
+value_variation = 0.05
+wind_sway_strength = 0.08
+
+[node name="Body" type="MeshInstance3D" parent="."]
+mesh = SubResource("Body")
+material_override = SubResource("Mat")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 0)

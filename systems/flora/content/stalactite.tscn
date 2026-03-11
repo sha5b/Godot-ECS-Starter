@@ -1,0 +1,30 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://systems/flora/flora_entry.gd" id="1_fe"]
+
+[sub_resource type="CylinderMesh" id="StalMesh"]
+top_radius = 0.02
+bottom_radius = 0.12
+height = 0.7
+radial_segments = 6
+
+[sub_resource type="StandardMaterial3D" id="StalMat"]
+albedo_color = Color(0.48, 0.45, 0.40, 1)
+roughness = 0.88
+
+[node name="Stalactite" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"stalactite"
+spawn_weight = 1.5
+min_height = 0.01
+max_height = 0.3
+scale_min = 0.4
+scale_max = 0.8
+allowed_biomes = Array[StringName]([&"cave_interior"])
+density_multiplier = 1.0
+random_rotation = true
+
+[node name="StalMesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("StalMesh")
+material_override = SubResource("StalMat")
+transform = Transform3D(1, 0, 0, 0, -1, 0, 0, 0, 1, 0, 0.35, 0)

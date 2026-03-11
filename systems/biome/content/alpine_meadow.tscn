@@ -1,0 +1,16 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://systems/biome/biome_data.gd" id="1_bd"]
+
+[node name="AlpineMeadow" type="Node"]
+script = ExtResource("1_bd")
+biome_name = &"alpine_meadow"
+terrain_color = Color(0.40, 0.58, 0.28, 1)
+ideal_temperature = 0.2
+temperature_tolerance = 0.15
+ideal_moisture = 0.55
+moisture_tolerance = 0.2
+ideal_height = 0.6
+height_tolerance = 0.15
+flora_density_multiplier = 1.8
+fauna_density_multiplier = 0.6

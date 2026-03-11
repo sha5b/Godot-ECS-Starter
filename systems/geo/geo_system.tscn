@@ -1,0 +1,12 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://systems/geo/geo_system.gd" id="1_gs"]
+[ext_resource type="Script" path="res://systems/geo/geo_config.gd" id="2_gc"]
+
+[node name="GeoSystem" type="Node3D"]
+script = ExtResource("1_gs")
+system_name = &"GeoSystem"
+priority = -50
+
+[node name="GeoConfig" type="Node" parent="."]
+script = ExtResource("2_gc")

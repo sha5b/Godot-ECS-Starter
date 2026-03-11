@@ -1,0 +1,48 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://systems/flora/flora_entry.gd" id="1_fe"]
+
+[sub_resource type="CylinderMesh" id="Trunk"]
+top_radius = 0.08
+bottom_radius = 0.12
+height = 2.0
+
+[sub_resource type="CylinderMesh" id="Canopy"]
+top_radius = 0.0
+bottom_radius = 0.7
+height = 2.5
+
+[sub_resource type="StandardMaterial3D" id="Mat_trunk"]
+albedo_color = Color(0.35, 0.22, 0.12, 1)
+
+[sub_resource type="StandardMaterial3D" id="Mat_canopy"]
+albedo_color = Color(0.12, 0.28, 0.10, 1)
+
+[node name="Pine" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"pine"
+spawn_weight = 2.5
+min_height = 0.1
+max_height = 0.7
+scale_min = 0.8
+scale_max = 1.6
+allowed_biomes = Array[StringName]([&"taiga", &"mountain", &"forest"])
+density_multiplier = 1.0
+random_rotation = true
+ground_probe_radius = 0.32
+max_ground_delta = 0.30
+surface_alignment = 0.10
+ground_sink = 0.025
+hue_variation = 0.03
+value_variation = 0.08
+wind_sway_strength = 0.35
+
+[node name="Trunk" type="MeshInstance3D" parent="."]
+mesh = SubResource("Trunk")
+material_override = SubResource("Mat_trunk")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.0, 0)
+
+[node name="Canopy" type="MeshInstance3D" parent="."]
+mesh = SubResource("Canopy")
+material_override = SubResource("Mat_canopy")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.75, 0)

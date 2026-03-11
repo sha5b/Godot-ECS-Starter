@@ -1,0 +1,44 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://systems/fauna/fauna_entry.gd" id="1_fe"]
+
+[sub_resource type="BoxMesh" id="Body"]
+size = Vector3(0.08, 0.04, 0.2)
+
+[sub_resource type="BoxMesh" id="Tail"]
+size = Vector3(0.04, 0.03, 0.15)
+
+[sub_resource type="StandardMaterial3D" id="BodyMat"]
+albedo_color = Color(0.45, 0.40, 0.28, 1)
+roughness = 0.75
+
+[sub_resource type="StandardMaterial3D" id="TailMat"]
+albedo_color = Color(0.42, 0.38, 0.25, 1)
+roughness = 0.8
+
+[node name="Lizard" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"lizard"
+spawn_weight = 2.0
+max_per_chunk = 3
+min_height = 0.05
+max_height = 0.5
+max_slope_degrees = 30.0
+scale_min = 0.9
+scale_max = 1.2
+allowed_biomes = Array[StringName]([&"canyon", &"desert", &"savanna", &"karst"])
+move_speed = 2.0
+wander_radius = 6.0
+wander_interval = 4.0
+flee_distance = 10.0
+flee_speed_multiplier = 2.0
+
+[node name="Body" type="MeshInstance3D" parent="."]
+mesh = SubResource("Body")
+material_override = SubResource("BodyMat")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.03, 0)
+
+[node name="Tail" type="MeshInstance3D" parent="."]
+mesh = SubResource("Tail")
+material_override = SubResource("TailMat")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.025, -0.16)

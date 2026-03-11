@@ -1,0 +1,16 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://systems/biome/biome_data.gd" id="1_bd"]
+
+[node name="Taiga" type="Node"]
+script = ExtResource("1_bd")
+biome_name = &"taiga"
+terrain_color = Color(0.20, 0.35, 0.22, 1)
+ideal_temperature = 0.25
+temperature_tolerance = 0.2
+ideal_moisture = 0.5
+moisture_tolerance = 0.3
+ideal_height = 0.35
+height_tolerance = 0.3
+flora_density_multiplier = 1.0
+fauna_density_multiplier = 0.55

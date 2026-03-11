@@ -1,0 +1,35 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://systems/flora/flora_entry.gd" id="1_fe"]
+
+[sub_resource type="SphereMesh" id="RockMesh"]
+radius = 0.4
+height = 0.35
+radial_segments = 5
+rings = 2
+
+[sub_resource type="StandardMaterial3D" id="RockMat"]
+albedo_color = Color(0.50, 0.48, 0.44, 1)
+roughness = 0.95
+
+[node name="Rock" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"rock"
+spawn_weight = 1.5
+min_height = 0.0
+max_height = 0.9
+max_slope_degrees = 35.0
+min_water_distance = 0.0
+scale_min = 0.5
+scale_max = 2.0
+density_multiplier = 1.0
+random_rotation = true
+ground_probe_radius = 0.28
+max_ground_delta = 0.32
+surface_alignment = 0.55
+ground_sink = 0.14
+
+[node name="RockMesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("RockMesh")
+material_override = SubResource("RockMat")
+transform = Transform3D(1.3, 0, 0, 0, 0.7, 0, 0, 0, 1.0, 0, 0.12, 0)

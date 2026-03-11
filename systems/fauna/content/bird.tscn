@@ -1,0 +1,94 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://systems/fauna/fauna_entry.gd" id="1_fe"]
+[ext_resource type="Script" path="res://systems/fauna/fauna_traits.gd" id="2_ft"]
+[ext_resource type="Script" path="res://systems/fauna/fauna_shelter_profile.gd" id="3_fs"]
+[ext_resource type="Script" path="res://systems/fauna/fauna_parenting_profile.gd" id="4_fp"]
+
+[sub_resource type="SphereMesh" id="Body"]
+radius = 0.1
+height = 0.15
+
+[sub_resource type="BoxMesh" id="Wing"]
+size = Vector3(0.25, 0.02, 0.12)
+
+[sub_resource type="StandardMaterial3D" id="Mat_body"]
+albedo_color = Color(0.3, 0.3, 0.35, 1)
+
+[sub_resource type="StandardMaterial3D" id="Mat_wing"]
+albedo_color = Color(0.25, 0.25, 0.30, 1)
+
+[node name="Bird" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"bird"
+spawn_weight = 2.5
+max_per_chunk = 4
+min_height = 0.01
+max_height = 0.8
+max_slope_degrees = 30.0
+scale_min = 0.9
+scale_max = 1.2
+excluded_biomes = Array[StringName]([&"snow"])
+move_speed = 3.0
+wander_radius = 15.0
+wander_interval = 4.0
+flee_distance = 25.0
+flee_speed_multiplier = 2.0
+can_fly = true
+flight_height_min = 3.0
+flight_height_max = 8.0
+flight_bob_amplitude = 0.45
+flight_bob_speed = 3.5
+lifecycle_enabled = true
+hunger_rate = 0.02
+can_breed = true
+breed_cooldown = 75.0
+nesting_enabled = true
+nest_duration = 24.0
+
+[node name="Body" type="MeshInstance3D" parent="."]
+mesh = SubResource("Body")
+material_override = SubResource("Mat_body")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+
+[node name="WingL" type="MeshInstance3D" parent="."]
+mesh = SubResource("Wing")
+material_override = SubResource("Mat_wing")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.15, 0.52, 0)
+
+[node name="WingR" type="MeshInstance3D" parent="."]
+mesh = SubResource("Wing")
+material_override = SubResource("Mat_wing")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.15, 0.52, 0)
+
+[node name="FaunaTraits" type="Node" parent="."]
+script = ExtResource("2_ft")
+social_drive = 0.7
+territoriality = 0.25
+curiosity = 0.4
+communication_range = 18.0
+memory_capacity = 6
+
+[node name="FaunaShelterProfile" type="Node" parent="."]
+script = ExtResource("3_fs")
+shelter_type = &"nest"
+site_search_radius = 18.0
+site_search_samples = 14
+return_home_distance = 12.0
+min_site_height_delta = 2.0
+prefers_elevated_sites = true
+prefers_cliffs = true
+cliff_min_slope_degrees = 40.0
+prefers_support_flora = true
+support_search_radius = 10.0
+support_height_offset = 3.5
+preferred_support_flora_names = Array[StringName]([&"tree", &"pine", &"dead_tree", &"rock"])
+home_range_radius = 18.0
+breeding_requires_shelter = true
+
+[node name="FaunaParentingProfile" type="Node" parent="."]
+script = ExtResource("4_fp")
+care_mode = &"biparental"
+juvenile_follow_radius = 9.0
+guard_radius = 6.0
+independence_age_fraction = 0.45

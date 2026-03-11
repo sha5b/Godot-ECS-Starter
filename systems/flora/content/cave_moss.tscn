@@ -1,0 +1,31 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://systems/flora/flora_entry.gd" id="1_fe"]
+
+[sub_resource type="SphereMesh" id="MossMesh"]
+radius = 0.25
+height = 0.1
+radial_segments = 6
+rings = 2
+
+[sub_resource type="StandardMaterial3D" id="MossMat"]
+albedo_color = Color(0.18, 0.35, 0.15, 1)
+roughness = 0.95
+
+[node name="CaveMoss" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"cave_moss"
+spawn_weight = 2.5
+min_height = 0.01
+max_height = 0.3
+scale_min = 0.5
+scale_max = 0.8
+allowed_biomes = Array[StringName]([&"cave_interior", &"karst"])
+density_multiplier = 1.0
+random_rotation = true
+ground_sink = 0.02
+
+[node name="MossClump" type="MeshInstance3D" parent="."]
+mesh = SubResource("MossMesh")
+material_override = SubResource("MossMat")
+transform = Transform3D(1.5, 0, 0, 0, 0.6, 0, 0, 0, 1.2, 0, 0.03, 0)

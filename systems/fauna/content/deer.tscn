@@ -1,0 +1,62 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://systems/fauna/fauna_entry.gd" id="1_fe"]
+[ext_resource type="Script" path="res://systems/fauna/fauna_traits.gd" id="2_ft"]
+[ext_resource type="Script" path="res://systems/fauna/fauna_shelter_profile.gd" id="3_fs"]
+
+[sub_resource type="BoxMesh" id="Body"]
+size = Vector3(0.6, 0.7, 1.2)
+
+[sub_resource type="BoxMesh" id="Head"]
+size = Vector3(0.3, 0.35, 0.4)
+
+[sub_resource type="StandardMaterial3D" id="Mat_body"]
+albedo_color = Color(0.55, 0.38, 0.22, 1)
+
+[sub_resource type="StandardMaterial3D" id="Mat_head"]
+albedo_color = Color(0.50, 0.35, 0.20, 1)
+
+[node name="Deer" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"deer"
+spawn_weight = 2.0
+max_per_chunk = 3
+min_height = 0.03
+max_height = 0.5
+max_slope_degrees = 30.0
+scale_min = 0.9
+scale_max = 1.2
+excluded_biomes = Array[StringName]([&"desert", &"snow", &"beach"])
+move_speed = 4.0
+wander_radius = 12.0
+wander_interval = 4.0
+flee_distance = 18.0
+flee_speed_multiplier = 2.0
+lifecycle_enabled = true
+hunger_rate = 0.02
+food_flora_names = Array[StringName]([&"grass", &"flower", &"bush"])
+can_breed = true
+
+[node name="Body" type="MeshInstance3D" parent="."]
+mesh = SubResource("Body")
+material_override = SubResource("Mat_body")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.7, 0)
+
+[node name="Head" type="MeshInstance3D" parent="."]
+mesh = SubResource("Head")
+material_override = SubResource("Mat_head")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.95, 0.65)
+
+[node name="FaunaTraits" type="Node" parent="."]
+script = ExtResource("2_ft")
+social_drive = 0.8
+territoriality = 0.2
+curiosity = 0.25
+communication_range = 14.0
+memory_capacity = 6
+
+[node name="FaunaShelterProfile" type="Node" parent="."]
+script = ExtResource("3_fs")
+shelter_type = &"resting_site"
+return_home_distance = 10.0
+home_range_radius = 16.0

@@ -1,0 +1,49 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://systems/fauna/fauna_entry.gd" id="1_fe"]
+
+[sub_resource type="SphereMesh" id="Body"]
+radius = 0.12
+height = 0.08
+radial_segments = 6
+rings = 3
+
+[sub_resource type="PrismMesh" id="Tail"]
+size = Vector3(0.1, 0.06, 0.04)
+
+[sub_resource type="StandardMaterial3D" id="BodyMat"]
+albedo_color = Color(0.55, 0.60, 0.70, 1)
+roughness = 0.3
+metallic = 0.2
+
+[sub_resource type="StandardMaterial3D" id="TailMat"]
+albedo_color = Color(0.50, 0.55, 0.65, 1)
+roughness = 0.35
+
+[node name="Fish" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"fish"
+spawn_weight = 3.5
+max_per_chunk = 5
+scale_min = 0.9
+scale_max = 1.2
+allowed_biomes = Array[StringName]([&"shallow_water", &"coral_reef", &"kelp_forest"])
+move_speed = 2.0
+wander_radius = 4.0
+wander_interval = 4.0
+flee_distance = 0.0
+flee_speed_multiplier = 2.0
+aquatic = true
+min_water_depth = 0.5
+max_water_depth = 8.0
+swim_height = 0.8
+
+[node name="Body" type="MeshInstance3D" parent="."]
+mesh = SubResource("Body")
+material_override = SubResource("BodyMat")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1.8, 0, 0, 0)
+
+[node name="Tail" type="MeshInstance3D" parent="."]
+mesh = SubResource("Tail")
+material_override = SubResource("TailMat")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.18)

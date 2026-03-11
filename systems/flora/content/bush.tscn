@@ -1,0 +1,37 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://systems/flora/flora_entry.gd" id="1_fe"]
+
+[sub_resource type="SphereMesh" id="BushMesh"]
+radius = 0.5
+height = 0.7
+radial_segments = 6
+rings = 3
+
+[sub_resource type="StandardMaterial3D" id="BushMat"]
+albedo_color = Color(0.25, 0.50, 0.18, 1)
+roughness = 0.9
+
+[node name="Bush" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"bush"
+spawn_weight = 2.0
+min_height = 0.02
+max_height = 0.5
+scale_min = 0.6
+scale_max = 1.2
+excluded_biomes = Array[StringName]([&"desert", &"snow", &"beach", &"mountain"])
+density_multiplier = 1.0
+random_rotation = true
+ground_probe_radius = 0.26
+max_ground_delta = 0.24
+surface_alignment = 0.18
+ground_sink = 0.06
+hue_variation = 0.04
+value_variation = 0.10
+wind_sway_strength = 0.28
+
+[node name="BushMesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("BushMesh")
+material_override = SubResource("BushMat")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.35, 0)

@@ -1,0 +1,12 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://systems/water/water_system.gd" id="1_ws"]
+[ext_resource type="Script" path="res://systems/water/water_config.gd" id="2_wc"]
+
+[node name="WaterSystem" type="Node3D"]
+script = ExtResource("1_ws")
+system_name = &"WaterSystem"
+priority = 5
+
+[node name="WaterConfig" type="Node" parent="."]
+script = ExtResource("2_wc")

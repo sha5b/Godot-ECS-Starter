@@ -1,0 +1,16 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://systems/biome/biome_data.gd" id="1_bd"]
+
+[node name="Canyon" type="Node"]
+script = ExtResource("1_bd")
+biome_name = &"canyon"
+terrain_color = Color(0.62, 0.45, 0.30, 1)
+ideal_temperature = 0.6
+temperature_tolerance = 0.3
+ideal_moisture = 0.2
+moisture_tolerance = 0.15
+ideal_height = 0.35
+height_tolerance = 0.25
+flora_density_multiplier = 0.2
+fauna_density_multiplier = 0.3

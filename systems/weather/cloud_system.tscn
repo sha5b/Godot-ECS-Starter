@@ -1,0 +1,12 @@
+[gd_scene format=3 uid="uid://dky52rs3bbg4q"]
+
+[ext_resource type="Script" uid="uid://b7lpjnxofj6f7" path="res://systems/weather/cloud_system.gd" id="1_cs"]
+[ext_resource type="Script" uid="uid://bkjrln0kkx5i2" path="res://systems/weather/cloud_config.gd" id="2_cc"]
+
+[node name="CloudSystem" type="Node3D" unique_id=1114144166]
+script = ExtResource("1_cs")
+system_name = &"CloudSystem"
+priority = 21
+
+[node name="CloudConfig" type="Node" parent="." unique_id=1206092888]
+script = ExtResource("2_cc")

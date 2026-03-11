@@ -1,0 +1,64 @@
+[gd_scene format=3 uid="uid://coywvyrequaps"]
+
+[ext_resource type="Script" uid="uid://cxetvom0aqxo1" path="res://systems/flora/flora_system.gd" id="1_fs"]
+[ext_resource type="Script" uid="uid://hgrf57t7i26b" path="res://systems/flora/flora_config.gd" id="2_fc"]
+[ext_resource type="PackedScene" path="res://systems/flora/content/tree.tscn" id="3_tree"]
+[ext_resource type="PackedScene" path="res://systems/flora/content/pine.tscn" id="4_pine"]
+[ext_resource type="PackedScene" path="res://systems/flora/content/cactus.tscn" id="5_cactus"]
+[ext_resource type="PackedScene" path="res://systems/flora/content/dead_tree.tscn" id="6_dead_tree"]
+[ext_resource type="PackedScene" path="res://systems/flora/content/bush.tscn" id="7_bush"]
+[ext_resource type="PackedScene" path="res://systems/flora/content/grass.tscn" id="8_grass"]
+[ext_resource type="PackedScene" path="res://systems/flora/content/flower.tscn" id="9_flower"]
+[ext_resource type="PackedScene" path="res://systems/flora/content/rock.tscn" id="10_rock"]
+[ext_resource type="PackedScene" path="res://systems/flora/content/mushroom.tscn" id="11_mushroom"]
+[ext_resource type="PackedScene" path="res://systems/flora/content/cave_moss.tscn" id="12_cave_moss"]
+[ext_resource type="PackedScene" path="res://systems/flora/content/crystal.tscn" id="13_crystal"]
+[ext_resource type="PackedScene" path="res://systems/flora/content/stalactite.tscn" id="14_stalactite"]
+[ext_resource type="PackedScene" path="res://systems/flora/content/alpine_flower.tscn" id="15_alpine"]
+[ext_resource type="PackedScene" path="res://systems/flora/content/sea_grass.tscn" id="16_sea_grass"]
+[ext_resource type="PackedScene" path="res://systems/flora/content/seaweed.tscn" id="17_seaweed"]
+[ext_resource type="PackedScene" path="res://systems/flora/content/kelp.tscn" id="18_kelp"]
+[ext_resource type="PackedScene" path="res://systems/flora/content/coral.tscn" id="19_coral"]
+
+[node name="FloraSystem" type="Node3D" unique_id=1314277574]
+script = ExtResource("1_fs")
+system_name = &"FloraSystem"
+priority = 30
+
+[node name="FloraConfig" type="Node" parent="." unique_id=772862795]
+script = ExtResource("2_fc")
+base_density = 500
+
+[node name="Tree" parent="." unique_id=1494578182 instance=ExtResource("3_tree")]
+
+[node name="Pine" parent="." unique_id=961238910 instance=ExtResource("4_pine")]
+
+[node name="Cactus" parent="." unique_id=1778387942 instance=ExtResource("5_cactus")]
+
+[node name="DeadTree" parent="." unique_id=2008546437 instance=ExtResource("6_dead_tree")]
+
+[node name="Bush" parent="." unique_id=293547359 instance=ExtResource("7_bush")]
+
+[node name="Grass" parent="." unique_id=66971135 instance=ExtResource("8_grass")]
+
+[node name="Flower" parent="." unique_id=356733306 instance=ExtResource("9_flower")]
+
+[node name="Rock" parent="." unique_id=1870965885 instance=ExtResource("10_rock")]
+
+[node name="Mushroom" parent="." unique_id=1834752415 instance=ExtResource("11_mushroom")]
+
+[node name="CaveMoss" parent="." unique_id=862697396 instance=ExtResource("12_cave_moss")]
+
+[node name="Crystal" parent="." unique_id=272185819 instance=ExtResource("13_crystal")]
+
+[node name="Stalactite" parent="." unique_id=1805542169 instance=ExtResource("14_stalactite")]
+
+[node name="AlpineFlower" parent="." unique_id=1604008152 instance=ExtResource("15_alpine")]
+
+[node name="SeaGrass" parent="." unique_id=781352253 instance=ExtResource("16_sea_grass")]
+
+[node name="Seaweed" parent="." unique_id=1114688168 instance=ExtResource("17_seaweed")]
+
+[node name="Kelp" parent="." unique_id=1519960935 instance=ExtResource("18_kelp")]
+
+[node name="Coral" parent="." unique_id=1471817532 instance=ExtResource("19_coral")]

@@ -1,50 +1,150 @@
-# Godot ECS System
+# Godot ECS Starter
 
-## Overview
-This is a simple Entity Component System (ECS) implementation for Godot 4.3. The ECS architecture separates game objects (entities) from their data (components) and behavior (systems).
+Godot ECS Starter is a Godot-native, inspector-first ECS-style starter kit built from scenes, nodes, signals, and shared state instead of a custom ECS runtime.
 
-## Core Classes
+## What it is
 
-### World
-The World class manages all entities, components, and systems. It handles:
-- Creating entities
-- Adding components to entities
-- Querying entities with specific component combinations
-- Running systems each frame
+- **Godot-native**
+  - systems are scenes
+  - components are nodes with exported configuration
+  - global coordination lives in autoloads
 
-### Entity
-A simple wrapper around an entity ID.
+- **Reactive**
+  - systems communicate through `SystemBus`
+  - shared runtime data lives in `SharedWorld`
 
-### Component
-Base class for all components. Components should be data-only classes that inherit from this.
+- **Drop-in friendly**
+  - new systems can be added under `World`
+  - new flora, fauna, and biome content can be added as single `.tscn` scenes
 
-### System
-Base class for all systems. Systems operate on entities with specific combinations of components.
+## Documentation
 
-## Usage
+- **[Docs index](docs/README.md)**
+- **[Architecture](docs/ARCHITECTURE.md)**
+- **[Adding to Godot ECS Starter](docs/ADDING_TO_GODOT_ECS_STARTER.md)**
+- **[Design Doctrine](docs/DESIGN_DOCTRINE.md)**
+- **[Implementation Plan](docs/IMPLEMENTATION_PLAN.md)**
 
-1. Create component types by extending the Component class
-2. Create systems by extending the System class
-3. Create a World instance
-4. Add entities with components to the world
-5. Add systems to the world
+## How it works
 
-## Example
+At runtime, the world scene hosts a set of systems that process in priority order.
 
-```gdscript
-# Create components
-var position_comp = PositionComponent.new(Vector2(100, 100))
-var sprite_comp = SpriteComponent.new("res://assets/character.png")
+Typical flow:
 
-# Create entity and add components
-var world = World.new()
-var entity = world.create_entity()
-world.add_component(entity, position_comp)
-world.add_component(entity, sprite_comp)
-
-# Add systems
-world.add_system(MovementSystem.new())
-world.add_system(RenderSystem.new())
+```text
+ChunkManager
+  -> TerrainSystem
+    -> RiverSystem
+    -> WaterSystem
+    -> NavigationSystem
+    -> BiomeSystem
+      -> FloraSystem
+      -> FaunaSystem
 ```
 
-The systems will automatically process entities with the appropriate components each frame.
+Each system owns one responsibility.
+
+Examples:
+- `TerrainSystem`
+  - generates terrain, caves, and river data
+
+- `RiverSystem`
+  - renders river water from terrain-owned river data
+
+- `WaterSystem`
+  - renders ocean/sea-level water and underwater effects
+
+- `BiomeSystem`
+  - classifies terrain into biomes
+
+- `FloraSystem` / `FaunaSystem`
+  - spawn and manage biome-aware content
+
+## How systems communicate
+
+There are two main channels.
+
+### `SystemBus`
+Use `SystemBus` for events.
+
+Examples:
+- `terrain_chunk_ready`
+- `biome_chunk_ready`
+- `river_chunk_ready`
+- `chunk_unload_requested`
+
+### `SharedWorld`
+Use `SharedWorld` for continuously shared world state.
+
+Examples:
+- sea level
+- river cell caches
+- ecosystem counters
+
+## How to add to it
+
+### Add a new system
+- create `systems/my_system/`
+- add `my_system.gd`
+- add `my_system_config.gd`
+- create `my_system.tscn`
+- place the scene under `World`
+
+### Add new content
+Use the single-scene content pattern:
+
+- one content type = one `.tscn`
+- root entry script + exported settings + mesh children inline
+
+Examples:
+- `systems/flora/content/tree.tscn`
+- `systems/fauna/content/deer.tscn`
+- `systems/biome/content/forest.tscn`
+
+See **[Adding to Godot ECS Starter](docs/ADDING_TO_GODOT_ECS_STARTER.md)** for the detailed workflow.
+
+## Repo layout
+
+```text
+res://
+├── autoloads/
+├── docs/
+├── scenes/
+├── systems/
+│   ├── base/
+│   ├── terrain/
+│   ├── river/
+│   ├── water/
+│   ├── biome/
+│   ├── weather/
+│   ├── cloud/
+│   ├── flora/
+│   ├── fauna/
+│   └── navigation/
+└── project.godot
+```
+
+## Starter principles
+
+- **clarity over cleverness**
+- **data ownership should be explicit**
+- **generation systems produce authoritative data**
+- **rendering systems consume that data**
+- **inspector-first workflows should stay easy**
+
+## Current focus areas
+
+- terrain-authoritative river rendering
+- better river/ocean blending
+- chunk-safe world generation
+- extensible scene-based content systems
+
+## Controls
+
+| Key | Action |
+|---|---|
+| **WASD** | Move camera |
+| **Mouse** | Look around |
+| **Shift** | Fast move |
+| **Space / Ctrl** | Up / Down |
+| **Escape** | Toggle mouse capture |

@@ -1,0 +1,30 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://systems/flora/flora_entry.gd" id="1_fe"]
+
+[sub_resource type="CylinderMesh" id="Trunk"]
+top_radius = 0.04
+bottom_radius = 0.1
+height = 1.8
+
+[sub_resource type="StandardMaterial3D" id="Mat"]
+albedo_color = Color(0.40, 0.32, 0.25, 1)
+
+[node name="DeadTree" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"dead_tree"
+spawn_weight = 1.5
+min_height = 0.05
+max_height = 0.8
+scale_min = 0.7
+scale_max = 1.2
+allowed_biomes = Array[StringName]([&"tundra", &"mountain"])
+density_multiplier = 1.0
+random_rotation = true
+value_variation = 0.12
+wind_sway_strength = 0.18
+
+[node name="Trunk" type="MeshInstance3D" parent="."]
+mesh = SubResource("Trunk")
+material_override = SubResource("Mat")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)

@@ -1,0 +1,61 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://systems/flora/flora_entry.gd" id="1_fe"]
+
+[sub_resource type="SphereMesh" id="CoralBase"]
+radius = 0.3
+height = 0.25
+radial_segments = 7
+rings = 3
+
+[sub_resource type="CylinderMesh" id="Branch"]
+top_radius = 0.03
+bottom_radius = 0.06
+height = 0.35
+radial_segments = 4
+
+[sub_resource type="StandardMaterial3D" id="BaseMat"]
+albedo_color = Color(0.75, 0.35, 0.30, 1)
+roughness = 0.8
+
+[sub_resource type="StandardMaterial3D" id="BranchMat"]
+albedo_color = Color(0.85, 0.50, 0.40, 1)
+roughness = 0.75
+
+[node name="Coral" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"coral"
+spawn_weight = 2.0
+min_water_distance = 0.0
+scale_min = 0.6
+scale_max = 1.0
+allowed_biomes = Array[StringName]([&"coral_reef"])
+density_multiplier = 1.0
+aquatic = true
+min_water_depth = 0.5
+max_water_depth = 5.0
+random_rotation = true
+ground_sink = 0.03
+hue_variation = 0.05
+value_variation = 0.1
+wind_sway_strength = 0.4
+
+[node name="Base" type="MeshInstance3D" parent="."]
+mesh = SubResource("CoralBase")
+material_override = SubResource("BaseMat")
+transform = Transform3D(1.3, 0, 0, 0, 0.8, 0, 0, 0, 1.1, 0, 0.1, 0)
+
+[node name="Branch1" type="MeshInstance3D" parent="."]
+mesh = SubResource("Branch")
+material_override = SubResource("BranchMat")
+transform = Transform3D(1, 0.15, 0, -0.15, 1, 0, 0, 0, 1, 0.1, 0.3, 0.05)
+
+[node name="Branch2" type="MeshInstance3D" parent="."]
+mesh = SubResource("Branch")
+material_override = SubResource("BranchMat")
+transform = Transform3D(1, -0.1, 0, 0.1, 1, 0, 0, 0, 1, -0.08, 0.28, -0.06)
+
+[node name="Branch3" type="MeshInstance3D" parent="."]
+mesh = SubResource("Branch")
+material_override = SubResource("BranchMat")
+transform = Transform3D(1, 0, 0.12, 0, 1, 0, -0.12, 0, 1, 0.02, 0.32, 0.1)

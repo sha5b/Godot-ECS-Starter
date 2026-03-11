@@ -1,0 +1,12 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://systems/weather/weather_volume_system.gd" id="1_wvs"]
+[ext_resource type="Script" path="res://systems/weather/weather_volume_config.gd" id="2_wvc"]
+
+[node name="WeatherVolumeSystem" type="Node3D"]
+script = ExtResource("1_wvs")
+system_name = &"WeatherVolumeSystem"
+priority = 22
+
+[node name="WeatherVolumeConfig" type="Node" parent="."]
+script = ExtResource("2_wvc")

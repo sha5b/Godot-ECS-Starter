@@ -1,0 +1,12 @@
+[gd_scene format=3 uid="uid://cbhwd05gs4gll"]
+
+[ext_resource type="Script" uid="uid://c0nb8gkjcpqm2" path="res://systems/terrain/terrain_system.gd" id="1_ts"]
+[ext_resource type="Script" uid="uid://dfbw5y8wica7" path="res://systems/terrain/terrain_config.gd" id="2_tc"]
+
+[node name="TerrainSystem" type="Node3D" unique_id=1193067873]
+script = ExtResource("1_ts")
+system_name = &"TerrainSystem"
+
+[node name="TerrainConfig" type="Node" parent="." unique_id=1141400150]
+script = ExtResource("2_tc")
+chunk_resolution = 30

@@ -1,0 +1,47 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://systems/weather/weather_system.gd" id="1_ws"]
+[ext_resource type="Script" path="res://systems/weather/weather_config.gd" id="2_wc"]
+
+[sub_resource type="ParticleProcessMaterial" id="RainMat_1"]
+direction = Vector3(0, -1, 0)
+spread = 3.0
+initial_velocity_min = 30.0
+initial_velocity_max = 40.0
+gravity = Vector3(0, -20, 0)
+lifetime_randomness = 0.2
+emission_shape = 3
+emission_box_extents = Vector3(30, 0.5, 30)
+scale_min = 0.02
+scale_max = 0.04
+
+[sub_resource type="StandardMaterial3D" id="RainDrawMat_1"]
+transparency = 1
+shading_mode = 0
+albedo_color = Color(0.7, 0.78, 0.9, 0.3)
+billboard_mode = 3
+
+[sub_resource type="QuadMesh" id="RainDropMesh_1"]
+size = Vector2(0.04, 0.6)
+material = SubResource("RainDrawMat_1")
+
+[node name="WeatherSystem" type="Node3D"]
+script = ExtResource("1_ws")
+system_name = &"WeatherSystem"
+priority = 20
+
+[node name="WeatherConfig" type="Node" parent="."]
+script = ExtResource("2_wc")
+
+[node name="SunLight" type="DirectionalLight3D" parent="."]
+light_color = Color(1, 0.95, 0.85, 1)
+light_energy = 1.0
+shadow_enabled = true
+
+[node name="RainParticles" type="GPUParticles3D" parent="."]
+emitting = false
+amount = 2000
+lifetime = 1.5
+visibility_aabb = AABB(-40, -30, -40, 80, 60, 80)
+process_material = SubResource("RainMat_1")
+draw_pass_1 = SubResource("RainDropMesh_1")

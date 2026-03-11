@@ -1,0 +1,12 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://systems/foliage/foliage_system.gd" id="1_foliage_system"]
+[ext_resource type="Script" path="res://systems/foliage/foliage_config.gd" id="2_foliage_config"]
+
+[node name="FoliageSystem" type="Node3D"]
+script = ExtResource("1_foliage_system")
+system_name = &"FoliageSystem"
+priority = 28
+
+[node name="FoliageConfig" type="Node" parent="."]
+script = ExtResource("2_foliage_config")

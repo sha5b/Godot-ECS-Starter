@@ -1,0 +1,16 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://systems/biome/biome_data.gd" id="1_bd"]
+
+[node name="ShallowWater" type="Node"]
+script = ExtResource("1_bd")
+biome_name = &"shallow_water"
+terrain_color = Color(0.22, 0.45, 0.42, 1)
+ideal_temperature = 0.5
+temperature_tolerance = 0.5
+ideal_moisture = 0.8
+moisture_tolerance = 0.5
+ideal_height = 0.02
+height_tolerance = 0.05
+flora_density_multiplier = 1.2
+fauna_density_multiplier = 1.5

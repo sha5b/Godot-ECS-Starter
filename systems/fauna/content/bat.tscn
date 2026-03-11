@@ -1,0 +1,89 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://systems/fauna/fauna_entry.gd" id="1_fe"]
+[ext_resource type="Script" path="res://systems/fauna/fauna_traits.gd" id="2_ft"]
+[ext_resource type="Script" path="res://systems/fauna/fauna_shelter_profile.gd" id="3_fs"]
+
+[sub_resource type="SphereMesh" id="Body"]
+radius = 0.08
+height = 0.1
+radial_segments = 6
+rings = 3
+
+[sub_resource type="BoxMesh" id="Wing"]
+size = Vector3(0.25, 0.01, 0.12)
+
+[sub_resource type="StandardMaterial3D" id="BodyMat"]
+albedo_color = Color(0.2, 0.18, 0.16, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="WingMat"]
+albedo_color = Color(0.15, 0.12, 0.10, 1)
+roughness = 0.85
+
+[node name="Bat" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"bat"
+spawn_weight = 2.0
+max_per_chunk = 3
+min_height = 0.01
+max_height = 0.5
+max_slope_degrees = 30.0
+scale_min = 0.9
+scale_max = 1.2
+allowed_biomes = Array[StringName]([&"cave_interior", &"karst"])
+move_speed = 2.5
+wander_radius = 8.0
+wander_interval = 4.0
+flee_distance = 10.0
+flee_speed_multiplier = 2.0
+can_fly = true
+flight_height_min = 1.5
+flight_height_max = 4.0
+flight_bob_amplitude = 0.3
+flight_bob_speed = 5.0
+lifecycle_enabled = true
+hunger_rate = 0.02
+can_breed = true
+breed_cooldown = 80.0
+nesting_enabled = true
+nest_duration = 22.0
+
+[node name="Body" type="MeshInstance3D" parent="."]
+mesh = SubResource("Body")
+material_override = SubResource("BodyMat")
+
+[node name="WingL" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.12, 0, 0)
+
+[node name="WingMesh" type="MeshInstance3D" parent="WingL"]
+mesh = SubResource("Wing")
+material_override = SubResource("WingMat")
+
+[node name="WingR" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.12, 0, 0)
+
+[node name="WingMesh" type="MeshInstance3D" parent="WingR"]
+mesh = SubResource("Wing")
+material_override = SubResource("WingMat")
+
+[node name="FaunaTraits" type="Node" parent="."]
+script = ExtResource("2_ft")
+social_drive = 0.65
+territoriality = 0.15
+curiosity = 0.35
+communication_range = 12.0
+memory_capacity = 6
+
+[node name="FaunaShelterProfile" type="Node" parent="."]
+script = ExtResource("3_fs")
+shelter_type = &"roost"
+site_search_radius = 14.0
+site_search_samples = 12
+return_home_distance = 8.0
+min_site_height_delta = 2.0
+prefers_elevated_sites = true
+prefers_cliffs = true
+cliff_min_slope_degrees = 45.0
+home_range_radius = 10.0
+breeding_requires_shelter = true

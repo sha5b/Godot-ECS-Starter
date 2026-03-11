@@ -1,0 +1,16 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://systems/biome/biome_data.gd" id="1_bd"]
+
+[node name="CoralReef" type="Node"]
+script = ExtResource("1_bd")
+biome_name = &"coral_reef"
+terrain_color = Color(0.55, 0.40, 0.32, 1)
+ideal_temperature = 0.7
+temperature_tolerance = 0.2
+ideal_moisture = 0.7
+moisture_tolerance = 0.3
+ideal_height = 0.03
+height_tolerance = 0.04
+flora_density_multiplier = 2.5
+fauna_density_multiplier = 2.0

@@ -1,0 +1,52 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://systems/flora/flora_entry.gd" id="1_fe"]
+
+[sub_resource type="CylinderMesh" id="Stalk"]
+top_radius = 0.03
+bottom_radius = 0.05
+height = 1.8
+radial_segments = 5
+
+[sub_resource type="SphereMesh" id="Bulb"]
+radius = 0.08
+height = 0.1
+radial_segments = 5
+rings = 2
+
+[sub_resource type="StandardMaterial3D" id="StalkMat"]
+albedo_color = Color(0.15, 0.30, 0.10, 0.9)
+roughness = 0.65
+transparency = 1
+alpha_scissor_threshold = 0.3
+
+[sub_resource type="StandardMaterial3D" id="BulbMat"]
+albedo_color = Color(0.20, 0.38, 0.12, 0.95)
+roughness = 0.5
+
+[node name="Kelp" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"kelp"
+spawn_weight = 2.5
+min_water_distance = 0.0
+scale_min = 0.8
+scale_max = 1.4
+allowed_biomes = Array[StringName]([&"kelp_forest", &"shallow_water"])
+density_multiplier = 1.0
+aquatic = true
+min_water_depth = 1.0
+max_water_depth = 8.0
+random_rotation = true
+hue_variation = 0.05
+value_variation = 0.1
+wind_sway_strength = 0.4
+
+[node name="Stalk" type="MeshInstance3D" parent="."]
+mesh = SubResource("Stalk")
+material_override = SubResource("StalkMat")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+
+[node name="Bulb" type="MeshInstance3D" parent="."]
+mesh = SubResource("Bulb")
+material_override = SubResource("BulbMat")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.85, 0)

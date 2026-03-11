@@ -10,7 +10,21 @@ config_version=5
 
 [application]
 
-config/name="New Game Project"
-run/main_scene="res://Main.tscn"
-config/features=PackedStringArray("4.4", "Forward Plus")
+config/name="Shaname"
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
+
+[autoload]
+
+GameConfig="*res://autoloads/game_config.gd"
+SystemBus="*res://autoloads/system_bus.gd"
+SharedWorld="*res://autoloads/shared_world.gd"
+
+[physics]
+
+3d/physics_engine="Jolt Physics"
+
+[rendering]
+
+rendering_device/driver.windows="d3d12"

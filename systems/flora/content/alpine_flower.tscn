@@ -1,0 +1,45 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://systems/flora/flora_entry.gd" id="1_fe"]
+
+[sub_resource type="CylinderMesh" id="Stem"]
+top_radius = 0.015
+bottom_radius = 0.02
+height = 0.2
+radial_segments = 4
+
+[sub_resource type="SphereMesh" id="Bloom"]
+radius = 0.06
+height = 0.04
+radial_segments = 6
+rings = 2
+
+[sub_resource type="StandardMaterial3D" id="StemMat"]
+albedo_color = Color(0.25, 0.50, 0.18, 1)
+roughness = 0.9
+
+[sub_resource type="StandardMaterial3D" id="BloomMat"]
+albedo_color = Color(0.75, 0.45, 0.85, 1)
+roughness = 0.7
+
+[node name="AlpineFlower" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"alpine_flower"
+spawn_weight = 3.0
+min_height = 0.4
+max_height = 0.75
+scale_min = 0.5
+scale_max = 0.8
+allowed_biomes = Array[StringName]([&"alpine_meadow", &"mountain", &"tundra"])
+density_multiplier = 1.0
+random_rotation = true
+
+[node name="Stem" type="MeshInstance3D" parent="."]
+mesh = SubResource("Stem")
+material_override = SubResource("StemMat")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
+
+[node name="Bloom" type="MeshInstance3D" parent="."]
+mesh = SubResource("Bloom")
+material_override = SubResource("BloomMat")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.22, 0)

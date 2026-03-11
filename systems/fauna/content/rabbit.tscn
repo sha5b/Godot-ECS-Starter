@@ -1,0 +1,65 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://systems/fauna/fauna_entry.gd" id="1_fe"]
+[ext_resource type="Script" path="res://systems/fauna/fauna_traits.gd" id="2_ft"]
+[ext_resource type="Script" path="res://systems/fauna/fauna_shelter_profile.gd" id="3_fs"]
+[ext_resource type="Script" path="res://systems/fauna/fauna_parenting_profile.gd" id="4_fp"]
+
+[sub_resource type="SphereMesh" id="Body"]
+radius = 0.15
+height = 0.25
+
+[sub_resource type="StandardMaterial3D" id="Mat"]
+albedo_color = Color(0.65, 0.55, 0.42, 1)
+
+[node name="Rabbit" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"rabbit"
+spawn_weight = 3.0
+max_per_chunk = 5
+min_height = 0.02
+max_height = 0.4
+max_slope_degrees = 30.0
+scale_min = 0.9
+scale_max = 1.2
+excluded_biomes = Array[StringName]([&"desert", &"snow", &"mountain"])
+move_speed = 5.0
+wander_radius = 6.0
+wander_interval = 4.0
+flee_distance = 12.0
+flee_speed_multiplier = 2.0
+lifecycle_enabled = true
+hunger_rate = 0.03
+food_flora_names = Array[StringName]([&"grass", &"flower"])
+can_breed = true
+breed_cooldown = 60.0
+nesting_enabled = true
+nest_duration = 18.0
+
+[node name="Body" type="MeshInstance3D" parent="."]
+mesh = SubResource("Body")
+material_override = SubResource("Mat")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.15, 0)
+
+[node name="FaunaTraits" type="Node" parent="."]
+script = ExtResource("2_ft")
+social_drive = 0.55
+territoriality = 0.35
+curiosity = 0.3
+communication_range = 10.0
+memory_capacity = 5
+
+[node name="FaunaShelterProfile" type="Node" parent="."]
+script = ExtResource("3_fs")
+shelter_type = &"burrow"
+return_home_distance = 7.0
+territory_enabled = true
+home_range_radius = 10.0
+territory_radius = 6.0
+breeding_requires_shelter = true
+
+[node name="FaunaParentingProfile" type="Node" parent="."]
+script = ExtResource("4_fp")
+juvenile_follow_radius = 7.0
+guard_radius = 5.0
+independence_age_fraction = 0.4

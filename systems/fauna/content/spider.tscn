@@ -1,0 +1,50 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://systems/fauna/fauna_entry.gd" id="1_fe"]
+
+[sub_resource type="SphereMesh" id="Body"]
+radius = 0.1
+height = 0.08
+radial_segments = 6
+rings = 3
+
+[sub_resource type="SphereMesh" id="Head"]
+radius = 0.06
+height = 0.06
+radial_segments = 5
+rings = 2
+
+[sub_resource type="StandardMaterial3D" id="BodyMat"]
+albedo_color = Color(0.12, 0.10, 0.08, 1)
+roughness = 0.8
+
+[sub_resource type="StandardMaterial3D" id="HeadMat"]
+albedo_color = Color(0.15, 0.12, 0.10, 1)
+roughness = 0.75
+
+[node name="Spider" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"spider"
+spawn_weight = 1.5
+max_per_chunk = 2
+min_height = 0.01
+max_height = 0.4
+max_slope_degrees = 30.0
+scale_min = 0.9
+scale_max = 1.2
+allowed_biomes = Array[StringName]([&"cave_interior", &"karst", &"swamp"])
+move_speed = 1.5
+wander_radius = 5.0
+wander_interval = 4.0
+flee_distance = 8.0
+flee_speed_multiplier = 2.0
+
+[node name="Body" type="MeshInstance3D" parent="."]
+mesh = SubResource("Body")
+material_override = SubResource("BodyMat")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.06, 0)
+
+[node name="Head" type="MeshInstance3D" parent="."]
+mesh = SubResource("Head")
+material_override = SubResource("HeadMat")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.06, 0.12)

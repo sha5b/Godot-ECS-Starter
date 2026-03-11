@@ -1,0 +1,44 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://systems/flora/flora_entry.gd" id="1_fe"]
+
+[sub_resource type="BoxMesh" id="Blade"]
+size = Vector3(0.06, 0.8, 0.04)
+
+[sub_resource type="StandardMaterial3D" id="Mat"]
+albedo_color = Color(0.12, 0.35, 0.15, 0.85)
+roughness = 0.7
+transparency = 1
+alpha_scissor_threshold = 0.3
+
+[node name="Seaweed" type="Node"]
+script = ExtResource("1_fe")
+entry_name = &"seaweed"
+spawn_weight = 3.0
+min_water_distance = 0.0
+scale_min = 0.6
+scale_max = 1.0
+allowed_biomes = Array[StringName]([&"shallow_water", &"kelp_forest", &"coral_reef"])
+density_multiplier = 1.0
+aquatic = true
+min_water_depth = 0.5
+max_water_depth = 6.0
+random_rotation = true
+hue_variation = 0.05
+value_variation = 0.1
+wind_sway_strength = 0.4
+
+[node name="Blade1" type="MeshInstance3D" parent="."]
+mesh = SubResource("Blade")
+material_override = SubResource("Mat")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0)
+
+[node name="Blade2" type="MeshInstance3D" parent="."]
+mesh = SubResource("Blade")
+material_override = SubResource("Mat")
+transform = Transform3D(0.95, 0.1, 0.0, -0.1, 0.95, 0, 0, 0, 1, 0.08, 0.38, 0.04)
+
+[node name="Blade3" type="MeshInstance3D" parent="."]
+mesh = SubResource("Blade")
+material_override = SubResource("Mat")
+transform = Transform3D(0.95, -0.08, 0.0, 0.08, 0.95, 0, 0, 0, 1, -0.06, 0.42, -0.03)

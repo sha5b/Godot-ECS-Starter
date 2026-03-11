@@ -1,0 +1,16 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://systems/biome/biome_data.gd" id="1_bd"]
+
+[node name="Savanna" type="Node"]
+script = ExtResource("1_bd")
+biome_name = &"savanna"
+terrain_color = Color(0.65, 0.62, 0.30, 1)
+ideal_temperature = 0.7
+temperature_tolerance = 0.2
+ideal_moisture = 0.35
+moisture_tolerance = 0.15
+ideal_height = 0.2
+height_tolerance = 0.25
+flora_density_multiplier = 0.4
+fauna_density_multiplier = 0.55
