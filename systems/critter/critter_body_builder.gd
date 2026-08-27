@@ -29,6 +29,19 @@ const UNIT_FOOT := 0.6
 const UNIT_TAIL := 0.22
 const UNIT_WING := 0.5
 
+## Where the skull control rides on the Head joint, and where the snout
+## pivot sits, both in units of skull_r (head-local space).
+##
+## The swept tube cannot turn tighter than it is thick without folding
+## through itself. These two used to sit 0.15 * skull_r apart along a line
+## that also hopped +0.2 then -0.1 vertically, while the tube radius there
+## was a full skull_r — so the face self-intersected on essentially every
+## body. Keeping the line near-flat in Y and spacing the controls by about
+## one skull radius keeps the centreline's bend radius above the tube
+## radius, which is the no-self-intersection condition for a swept surface.
+const SKULL_CONTROL := Vector3(0.0, 0.05, 0.70)
+const SNOUT_PIVOT := Vector3(0.0, 0.02, 1.60)
+
 const GROUP_BODY := &"critter_body"
 const GROUP_SPINE := &"critter_spine"
 const GROUP_HIP := &"critter_hip"
@@ -182,19 +195,30 @@ static func _assemble_torso(genome: CritterGenome, palette: Dictionary, spine_ro
 	if genome.coat_pattern() == CritterGenome.CoatPattern.STRIPES:
 		torso.stripe_count = maxi(genome.segment_count() * 2, 3)
 
+	var segments: Array[Node3D] = joints["spine"]
+	var radii: Array[float] = joints["spine_radii"]
+
 	# Tail line, tip first so the radius grows toward the body.
+	#
+	# tail[0] is the joint that MEETS the body and tail[last] is the tip, so
+	# the interpolation has to run from the tip end. Running it the other
+	# way put the fat end at the tip and a 0.02 m thread at the junction
+	# with a 0.28 m body — an 11x radius step over one span, which rendered
+	# as a club dangling off an inside-out pinch. The base terminates at
+	# S0's own radius so the tail and the torso meet flush.
 	var tail: Array[Node3D] = joints.get("tail", [])
 	var girth_r: float = float(genome.genes[CritterGenome.GENE_SEG_GIRTH]) * UNIT_SEG_GIRTH
 	var tail_len: float = float(genome.genes[CritterGenome.GENE_TAIL_LENGTH]) * UNIT_TAIL
 	if not tail.is_empty():
-		torso.add_control(tail[tail.size() - 1], Vector3(0.0, 0.0, -tail_len * 0.95), 0.015)
+		var tip_r := girth_r * 0.08
+		var base_r: float = radii[0]
+		torso.add_control(tail[tail.size() - 1],
+			Vector3(0.0, 0.0, -tail_len * 0.95), tip_r * 0.6)
 		for i in range(tail.size() - 1, -1, -1):
-			var radius := girth_r * lerpf(0.08, 0.5, float(i) / float(tail.size()))
-			torso.add_control(tail[i], Vector3.ZERO, radius)
+			var t := 1.0 - float(i) / float(maxi(tail.size() - 1, 1))
+			torso.add_control(tail[i], Vector3.ZERO, lerpf(tip_r, base_r, t))
 
 	# Torso line, rear to front.
-	var segments: Array[Node3D] = joints["spine"]
-	var radii: Array[float] = joints["spine_radii"]
 	for i in segments.size():
 		torso.add_control(segments[i], Vector3.ZERO, radii[i])
 
@@ -205,7 +229,7 @@ static func _assemble_torso(genome: CritterGenome, palette: Dictionary, spine_ro
 	var snout_pivot := head.get_node("Snout") as Node3D
 	var neck_r := lerpf(radii[radii.size() - 1], skull_r, 0.55)
 	torso.add_control(head, Vector3.ZERO, neck_r)
-	torso.add_control(head, Vector3(0.0, skull_r * 0.2, skull_r * 0.45), skull_r)
+	torso.add_control(head, SKULL_CONTROL * skull_r, skull_r)
 	if snout_pivot != null:
 		torso.add_control(snout_pivot, Vector3.ZERO, skull_r * 0.5)
 		torso.add_control(snout_pivot, Vector3(0.0, 0.0, snout_len + skull_r * 0.15), skull_r * 0.16)
@@ -235,7 +259,7 @@ static func _build_head(genome: CritterGenome, palette: Dictionary, spine_root: 
 	var droop: float = float(genome.genes[CritterGenome.GENE_SNOUT_DROOP])
 	var snout_pivot := Node3D.new()
 	snout_pivot.name = "Snout"
-	snout_pivot.position = Vector3(0.0, -skull_r * 0.1, skull_r * 0.6)
+	snout_pivot.position = SNOUT_PIVOT * skull_r
 	snout_pivot.rotation.x = droop
 	head.add_child(snout_pivot)
 	var nose := _sphere(skull_r * 0.2, palette["belly"])

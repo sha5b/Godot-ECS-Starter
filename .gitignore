@@ -1,3 +1,7 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+
+# Scratch / QA harnesses (not part of the project)
+.qa/
+.scratch_probe/

@@ -44,6 +44,9 @@ var belly_threshold := -0.1
 
 var _last_pose: Dictionary = {}  ## node instance id -> rotation Vector3
 
+## Reused across re-skins so a walking body does not allocate a mesh a frame.
+var _mesh: ArrayMesh = null
+
 
 func setup(space_node: Node3D, instance: MeshInstance3D) -> void:
 	space = space_node
@@ -87,27 +90,54 @@ func reskin() -> void:
 	if mesh_instance == null or controls.size() < 2:
 		return
 
-	# ── Sample the spline ────────────────────────────────────────────────
+	# ── Collect controls, dropping near-coincident ones ──────────────────
+	# A control closer to its predecessor than a fraction of the local tube
+	# radius makes the centreline turn tighter than the tube is thick, and
+	# the swept surface folds through itself. Merging them away is the
+	# general guard; the head/snout layout in the builder is the specific
+	# case that used to trip it on every single body.
 	var positions: Array[Vector3] = []
 	var radii: Array[float] = []
 	for i in controls.size():
-		positions.append(_control_position(i))
-		radii.append(float(controls[i]["radius"]))
+		var position := _control_position(i)
+		var radius := float(controls[i]["radius"])
+		if not positions.is_empty():
+			var previous: Vector3 = positions[positions.size() - 1]
+			var floor_gap: float = 0.35 * maxf(radius, radii[radii.size() - 1])
+			if position.distance_to(previous) < floor_gap:
+				# Keep the wider radius so the surface does not pinch.
+				radii[radii.size() - 1] = maxf(radii[radii.size() - 1], radius)
+				continue
+		positions.append(position)
+		radii.append(radius)
+	if positions.size() < 2:
+		return
+
+	# ── Sample the spline ────────────────────────────────────────────────
+	# Centripetal Catmull-Rom (alpha = 0.5). Control spacing inside one body
+	# ranges over roughly 10x, and the uniform-parameter form overshoots and
+	# self-loops across ratios like that. The centripetal form is provably
+	# cusp- and loop-free for any spacing.
 	var points := PackedVector3Array()
 	var point_radii := PackedFloat32Array()
 	for span in positions.size() - 1:
 		var i0 := maxi(span - 1, 0)
 		var i3 := mini(span + 2, positions.size() - 1)
-		for s in SUBDIV:
-			var t := float(s) / float(SUBDIV)
-			points.append(_catmull(positions[i0], positions[span], positions[span + 1], positions[i3], t))
-			# Catmull-Rom overshoots on steep radius steps; clamp each
-			# sample to a band around its span's control radii so the tube
-			# can spike or pinch into a see-through hole.
-			var r_min := minf(radii[span], radii[span + 1])
-			var r_max := maxf(radii[span], radii[span + 1])
+		var p0: Vector3 = positions[i0]
+		var p1: Vector3 = positions[span]
+		var p2: Vector3 = positions[span + 1]
+		var p3: Vector3 = positions[i3]
+		var knots := _centripetal_knots(p0, p1, p2, p3)
+		# Sample density follows span length relative to tube thickness, so
+		# long spine spans stay smooth without over-sampling 3 cm head spans.
+		var r_min := minf(radii[span], radii[span + 1])
+		var r_max := maxf(radii[span], radii[span + 1])
+		var subdiv := clampi(ceili(p1.distance_to(p2) / maxf(r_max * 0.6, 0.01)), 2, 8)
+		for s in subdiv:
+			var t := float(s) / float(subdiv)
+			points.append(_catmull_nonuniform_v(p0, p1, p2, p3, knots, t))
 			point_radii.append(clampf(
-				_catmull_f(radii[i0], radii[span], radii[span + 1], radii[i3], t),
+				_catmull_nonuniform_f(radii[i0], radii[span], radii[span + 1], radii[i3], knots, t),
 				r_min * 0.75, r_max * 1.1))
 	points.append(positions[positions.size() - 1])
 	point_radii.append(radii[radii.size() - 1])
@@ -118,24 +148,29 @@ func reskin() -> void:
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
+	var uvs := PackedVector2Array()
 	var indices := PackedInt32Array()
 
 	var tangent: Vector3 = (points[1] - points[0]).normalized()
+	if tangent.length_squared() < 0.5:
+		tangent = Vector3.FORWARD
 	var side := _perpendicular(tangent)
 	var up_dir := tangent.cross(side).normalized()
 
 	var ring_count := points.size()
 	for i in ring_count:
 		if i > 0:
-			var next_tangent := (points[mini(i + 1, ring_count - 1)] - points[maxi(i - 1, 0)]).normalized()
-			if next_tangent.length_squared() > 0.5:
+			var step := points[mini(i + 1, ring_count - 1)] - points[maxi(i - 1, 0)]
+			# Coincident samples give no direction to transport toward, so
+			# keep the previous frame rather than normalizing a zero vector.
+			if step.length_squared() > 1e-12:
 				# Transport the frame by projecting the previous side vector
 				# onto the new tangent's perpendicular plane. A single
 				# Quaternion(tangent, next_tangent) is undefined when the
 				# line kinks near backwards (opposite vectors) and can flip
 				# the ring frame — an inside-out tube you can see into.
 				# Projection has no such singularity at any turn angle.
-				tangent = next_tangent
+				tangent = step.normalized()
 				var projected := side - tangent * side.dot(tangent)
 				if projected.length_squared() < 0.0001:
 					projected = up_dir - tangent * up_dir.dot(tangent)
@@ -153,6 +188,7 @@ func reskin() -> void:
 			verts.append(center + dir * radius)
 			normals.append(dir)
 			colors.append(_coat_color(dir, u))
+			uvs.append(Vector2(u, float(k) / float(RADIAL)))
 		if i > 0:
 			var prev_base := ring_base - RADIAL
 			for k in RADIAL:
@@ -165,18 +201,27 @@ func reskin() -> void:
 				indices.append(ring_base + k_next)
 
 	# ── End caps (fan to a pole vertex) ──────────────────────────────────
-	_append_cap(verts, normals, colors, indices, points, 0, -1.0)
-	_append_cap(verts, normals, colors, indices, points, ring_count - 1, 1.0)
+	_append_cap(verts, normals, colors, indices, points, point_radii, uvs, 0, -1.0)
+	_append_cap(verts, normals, colors, indices, points, point_radii, uvs, ring_count - 1, 1.0)
 
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_INDEX] = indices
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	mesh_instance.mesh = mesh
+	# Reuse one ArrayMesh across re-skins. A walking critter rebuilds every
+	# few frames, and allocating a fresh mesh each time is pure GC churn at
+	# world population scale.
+	if _mesh == null:
+		_mesh = ArrayMesh.new()
+		mesh_instance.mesh = _mesh
+	else:
+		_mesh.clear_surfaces()
+	_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	if mesh_instance.mesh != _mesh:
+		mesh_instance.mesh = _mesh
 
 
 # ── Internals ─────────────────────────────────────────────────────────────────
@@ -184,6 +229,15 @@ func reskin() -> void:
 
 ## Control position in the space node's local coordinates, composed from
 ## local transforms only (works detached from the scene tree).
+##
+## `chain` is collected child-first: chain[0] is the control node and
+## chain[n-1] is its outermost ancestor below `space`. Composing to space
+## coordinates therefore needs the OUTERMOST transform applied last:
+##   A[n-1] * A[n-2] * ... * A[0] * offset
+## Iterating forward and left-multiplying builds exactly that. Iterating
+## backward builds the reverse product, which happens to agree for
+## translation-only chains but diverges the moment any joint carries a
+## rotation — i.e. for every arched spine, drooped snout, or animated pose.
 func _control_position(index: int) -> Vector3:
 	var node := controls[index]["node"] as Node3D
 	var offset: Vector3 = controls[index]["offset"]
@@ -193,29 +247,56 @@ func _control_position(index: int) -> Vector3:
 	while cur != null and cur != space:
 		chain.append(cur)
 		cur = cur.get_parent() as Node3D
-	for i in range(chain.size() - 1, -1, -1):
-		xform = chain[i].transform * xform
+	for link in chain:
+		xform = link.transform * xform
 	return xform * offset
 
 
-func _catmull(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, t: float) -> Vector3:
-	var t2 := t * t
-	var t3 := t2 * t
-	return 0.5 * (
-		(2.0 * p1)
-		+ (-p0 + p2) * t
-		+ (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
-		+ (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3)
+## Centripetal knot vector (alpha = 0.5) for four control points. Spacing
+## each knot by sqrt(distance) is what makes the resulting Catmull-Rom
+## provably free of cusps and self-intersections regardless of how uneven
+## the control spacing is — the uniform form loops on ratios this body
+## routinely produces (0.03 m head spans next to 0.28 m spine spans).
+## The 1e-5 floor keeps the knots strictly increasing for coincident points.
+func _centripetal_knots(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3) -> PackedFloat32Array:
+	var t0 := 0.0
+	var t1: float = t0 + sqrt(maxf(p0.distance_to(p1), 1e-5))
+	var t2: float = t1 + sqrt(maxf(p1.distance_to(p2), 1e-5))
+	var t3: float = t2 + sqrt(maxf(p2.distance_to(p3), 1e-5))
+	return PackedFloat32Array([t0, t1, t2, t3])
 
 
-func _catmull_f(p0: float, p1: float, p2: float, p3: float, t: float) -> float:
-	var t2 := t * t
-	var t3 := t2 * t
-	return 0.5 * (
-		(2.0 * p1)
-		+ (-p0 + p2) * t
-		+ (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t2
-		+ (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t3)
+## Barry-Goldman evaluation of a non-uniform Catmull-Rom span (p1 -> p2).
+func _catmull_nonuniform_v(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3,
+		knots: PackedFloat32Array, t: float) -> Vector3:
+	var t0 := knots[0]
+	var t1 := knots[1]
+	var t2 := knots[2]
+	var t3 := knots[3]
+	var tt := lerpf(t1, t2, t)
+	var a1 := p0.lerp(p1, (tt - t0) / (t1 - t0))
+	var a2 := p1.lerp(p2, (tt - t1) / (t2 - t1))
+	var a3 := p2.lerp(p3, (tt - t2) / (t3 - t2))
+	var b1 := a1.lerp(a2, (tt - t0) / (t2 - t0))
+	var b2 := a2.lerp(a3, (tt - t1) / (t3 - t1))
+	return b1.lerp(b2, (tt - t1) / (t2 - t1))
+
+
+## Same evaluation for the scalar radius profile, sharing the position-derived
+## knots so the radius follows arc length rather than control index.
+func _catmull_nonuniform_f(p0: float, p1: float, p2: float, p3: float,
+		knots: PackedFloat32Array, t: float) -> float:
+	var t0 := knots[0]
+	var t1 := knots[1]
+	var t2 := knots[2]
+	var t3 := knots[3]
+	var tt := lerpf(t1, t2, t)
+	var a1 := lerpf(p0, p1, (tt - t0) / (t1 - t0))
+	var a2 := lerpf(p1, p2, (tt - t1) / (t2 - t1))
+	var a3 := lerpf(p2, p3, (tt - t2) / (t3 - t2))
+	var b1 := lerpf(a1, a2, (tt - t0) / (t2 - t0))
+	var b2 := lerpf(a2, a3, (tt - t1) / (t3 - t1))
+	return lerpf(b1, b2, (tt - t1) / (t2 - t1))
 
 
 func _perpendicular(direction: Vector3) -> Vector3:
@@ -238,23 +319,60 @@ func _coat_color(dir: Vector3, u: float) -> Color:
 	return color
 
 
+## Close one end of the tube with a fan to a pole vertex.
+##
+## `direction` is -1 for the near (tail-tip) end and +1 for the far
+## (snout-tip) end. The outward axis always points AWAY from the tube, so
+## it is measured from the neighbour ring toward this one — the far end
+## previously clamped its neighbour to itself, producing a zero-length
+## tangent, a zero normal, and a pole sitting exactly on the ring centre.
+##
+## Winding matches the tube walls: in Godot a front-facing triangle has
+## cross(B-A, C-A) pointing OPPOSITE the outward normal (verified against
+## SphereMesh/BoxMesh/CapsuleMesh). Both caps used to be wound the other
+## way, so back-face culling erased them and left permanent holes at the
+## snout and tail tips that you could see into the body through.
+## Tip poles have no belly side, so they take the stripe banding only.
+## Feeding Vector3.ZERO through _coat_color gave every pole a fixed 21%
+## belly blend and a visible colour seam once the caps became visible.
+func _pole_color(u: float) -> Color:
+	var color := base_color
+	if stripe_count > 0 and accent_amount > 0.0:
+		var band := sin(u * float(stripe_count) * TAU)
+		var stripe := clampf((band - 0.55) / 0.25, 0.0, 1.0) * accent_amount
+		if stripe > 0.0:
+			color = color.lerp(accent_color, stripe)
+	return color
+
+
 func _append_cap(verts: PackedVector3Array, normals: PackedVector3Array,
 		colors: PackedColorArray, indices: PackedInt32Array,
-		points: PackedVector3Array, ring_index: int, direction: float) -> void:
-	var neighbor := maxi(ring_index - 1, 1) if direction < 0.0 else mini(ring_index + 1, points.size() - 1)
-	var tangent := (points[neighbor] - points[ring_index]).normalized() * direction
+		points: PackedVector3Array, point_radii: PackedFloat32Array,
+		uvs: PackedVector2Array, ring_index: int, direction: float) -> void:
+	var neighbor := clampi(
+		ring_index + 1 if direction < 0.0 else ring_index - 1,
+		0, points.size() - 1)
+	var tangent := points[ring_index] - points[neighbor]
+	if tangent.length_squared() < 1e-12:
+		tangent = Vector3.FORWARD * direction
+	tangent = tangent.normalized()
+	# Round the tip off by the local radius. A hard-coded 0.01 left the cap
+	# flat or sunken against rings 3-15x that size.
+	var radius := maxf(point_radii[ring_index], 0.012)
+	var u := 0.0 if direction < 0.0 else 1.0
 	var pole := verts.size()
-	verts.append(points[ring_index] + tangent * 0.01)
+	verts.append(points[ring_index] + tangent * radius * 0.75)
 	normals.append(tangent)
-	colors.append(_coat_color(Vector3.ZERO, 0.0 if direction < 0.0 else 1.0))
+	colors.append(_pole_color(u))
+	uvs.append(Vector2(u, 0.5))
 	var ring_base := ring_index * RADIAL
 	for k in RADIAL:
 		var k_next := (k + 1) % RADIAL
 		if direction < 0.0:
 			indices.append(pole)
-			indices.append(ring_base + k_next)
 			indices.append(ring_base + k)
+			indices.append(ring_base + k_next)
 		else:
 			indices.append(pole)
-			indices.append(ring_base + k)
 			indices.append(ring_base + k_next)
+			indices.append(ring_base + k)
