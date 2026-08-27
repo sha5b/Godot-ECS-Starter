@@ -1,5 +1,7 @@
 # Godot ECS Starter
 
+![Godot ECS Starter](docs/images/banner.svg)
+
 Godot ECS Starter is a Godot-native, inspector-first ECS-style starter kit built from scenes, nodes, signals, and shared state instead of a custom ECS runtime.
 
 ## What it is

@@ -1,0 +1,10 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://systems/world/edge_fog_system.gd" id="1_fog"]
+[ext_resource type="Script" path="res://systems/world/edge_fog_config.gd" id="2_config"]
+
+[node name="EdgeFogSystem" type="Node3D"]
+script = ExtResource("1_fog")
+
+[node name="EdgeFogConfig" type="Node" parent="."]
+script = ExtResource("2_config")

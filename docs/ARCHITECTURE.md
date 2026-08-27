@@ -233,7 +233,8 @@ That pattern is the intended one:
 ## Current runtime notes
 
 - the world is observed through the RTS god camera (`scenes/rts_camera.gd`) — there is no player avatar
-- `ChunkManager` defaults to a `3x3` startup field (`GameConfig.load_radius = 1`) and streams 1 chunk per frame
+- `ChunkManager` defaults to a `5x5` startup field (`GameConfig.load_radius = 2`) and streams 1 chunk per frame
+- `EdgeFogSystem` hides the loading frontier: four volumetric FogVolume walls follow the camera chunk ring, and distance fog reaches sky-opacity near the boundary
 - terrain meshing is budgeted: column Y-bands skip the ~90% of the volume that cannot produce surface, normals come from the chunk-local density grid, and surfaces commit through `add_surface_from_arrays` instead of `SurfaceTool`
 - adaptive refinement defaults to 1 (stylized, fast); raise `adaptive_refine_subdivisions` to 2 for finer cliffs, shores, and riverbanks at extra build cost
 - terrain seam safety is currently preserved by preventing adaptive refinement on chunk-border cells

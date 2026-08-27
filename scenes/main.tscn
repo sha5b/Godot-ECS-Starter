@@ -18,6 +18,7 @@
 [ext_resource type="PackedScene" path="res://systems/foliage/foliage_system.tscn" id="18_foliage"]
 [ext_resource type="PackedScene" path="res://systems/ecs/ecs_system.tscn" id="19_ecs"]
 [ext_resource type="Script" path="res://scenes/rts_camera.gd" id="20_cam"]
+[ext_resource type="PackedScene" path="res://systems/world/edge_fog_system.tscn" id="21_fog"]
 
 [sub_resource type="ShaderMaterial" id="SkyMat_1"]
 shader = ExtResource("12_cloud_shader")
@@ -38,7 +39,11 @@ tonemap_mode = 2
 ssao_enabled = true
 fog_enabled = true
 fog_light_color = Color(0.7, 0.75, 0.8, 1)
-fog_density = 0.002
+fog_density = 0.009
+fog_sky_mode = 1
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.001
+volumetric_fog_albedo = Color(0.7, 0.76, 0.85, 1)
 
 [node name="World" type="Node3D" unique_id=1518519948]
 script = ExtResource("1_world")
@@ -72,6 +77,8 @@ transform = Transform3D(0.99961203, 0.027851852, 0, -0.027851852, 0.99961203, 0,
 [node name="FaunaSystem" parent="." unique_id=117331885 instance=ExtResource("11_fauna")]
 
 [node name="EcsSystem" parent="." unique_id=1899447002 instance=ExtResource("19_ecs")]
+
+[node name="EdgeFogSystem" parent="." unique_id=177441002 instance=ExtResource("21_fog")]
 
 [node name="RtsCamera" type="Camera3D" parent="." unique_id=1820477511]
 script = ExtResource("20_cam")

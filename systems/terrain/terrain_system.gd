@@ -1659,7 +1659,18 @@ func _carve_river_channels(grid: PackedFloat32Array, heightmap: PackedFloat32Arr
 					valley_t = pow(maxf(valley_t, 0.0), valley_profile_power)
 					var edge_fade := clampf(minf(wx - origin_x, origin_x + GameConfig.chunk_size - wx) / 2.0, 0.0, 1.0)
 					var edge_fade_z := clampf(minf(wz - origin_z, origin_z + GameConfig.chunk_size - wz) / 2.0, 0.0, 1.0)
-					var seam_weight := lerpf(0.58, 1.0, clampf(minf(edge_fade, edge_fade_z) / 2.5, 0.0, 1.0))
+					# Carve weight is the INVERSE of the border-restore blend:
+					# zero at the seam (river carving is order-dependent —
+					# either side may or may not have traced this river) and
+					# full strength past the blend band. Without this, traced
+					# and untraced sides mismatch along river crossings.
+					var edge_d := minf(
+						mini(gx, res_xz - 1 - gx),
+						mini(gz, res_xz - 1 - gz))
+					var restore_w := clampf(
+						1.0 - (float(maxi(edge_d, 1)) - 1.0) / maxf(float(maxi(_config.border_blend_cells, 2) - 1), 1.0),
+						0.0, 1.0)
+					var seam_weight := 1.0 - restore_w * restore_w * (3.0 - 2.0 * restore_w)
 					var surface_h := heightmap[gz * res_xz + gx]
 					var channel_floor := surface_h - depth
 					var target_surface := surface_h

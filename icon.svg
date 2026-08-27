@@ -1,1 +1,46 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128"><rect width="124" height="124" x="2" y="2" fill="#363d52" stroke="#212532" stroke-width="4" rx="14"/><g fill="#fff" transform="translate(12.322 12.322)scale(.101)"><path d="M105 673v33q407 354 814 0v-33z"/><path fill="#478cbf" d="m105 673 152 14q12 1 15 14l4 67 132 10 8-61q2-11 15-15h162q13 4 15 15l8 61 132-10 4-67q3-13 15-14l152-14V427q30-39 56-81-35-59-83-108-43 20-82 47-40-37-88-64 7-51 8-102-59-28-123-42-26 43-46 89-49-7-98 0-20-46-46-89-64 14-123 42 1 51 8 102-48 27-88 64-39-27-82-47-48 49-83 108 26 42 56 81zm0 33v39c0 276 813 276 814 0v-39l-134 12-5 69q-2 10-14 13l-162 11q-12 0-16-11l-10-65H446l-10 65q-4 11-16 11l-162-11q-12-3-14-13l-5-69z"/><path d="M483 600c0 34 58 34 58 0v-86c0-34-58-34-58 0z"/><circle cx="725" cy="526" r="90"/><circle cx="299" cy="526" r="90"/></g><g fill="#414042" transform="translate(12.322 12.322)scale(.101)"><circle cx="307" cy="532" r="60"/><circle cx="717" cy="532" r="60"/></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- badge background -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c3452"/>
+      <stop offset="1" stop-color="#171c2e"/>
+    </linearGradient>
+    <clipPath id="topface">
+      <path d="M64 34 110 57 64 80 18 57Z"/>
+    </clipPath>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#bg)"/>
+  <!-- sky sparks -->
+  <circle cx="30" cy="30" r="1.8" fill="#6f7ba8"/>
+  <circle cx="52" cy="22" r="1.4" fill="#535e85"/>
+  <circle cx="40" cy="104" r="1.6" fill="#535e85"/>
+  <circle cx="94" cy="104" r="1.4" fill="#6f7ba8"/>
+  <!-- lightning bolt (chemistry engine) -->
+  <path d="M97 18 88 33h6l-5 12 14-17h-7l6-10z" fill="#ffd94a"/>
+  <!-- floating terrain chunk -->
+  <path d="M18 57 64 80 64 102Z" fill="#4a3526"/>
+  <path d="M110 57 64 80 64 102Z" fill="#63452f"/>
+  <path d="M18 57 64 34 64 80Z" fill="#83c55f"/>
+  <path d="M110 57 64 34 64 80Z" fill="#69ad4b"/>
+  <!-- chunk grid hint -->
+  <g clip-path="url(#topface)" stroke="#3f7a35" stroke-opacity=".55" stroke-width="1.5" fill="none">
+    <path d="M42 45.5 86 68.5"/>
+    <path d="M86 45.5 42 68.5"/>
+  </g>
+  <!-- river -->
+  <g clip-path="url(#topface)">
+    <path d="M57 39c-7 8 8 10 4 17c-3 6 12 7 18 5c9-3 20 0 28-4" fill="none" stroke="#3e8fd6" stroke-width="6" stroke-linecap="round"/>
+    <path d="M57 39c-7 8 8 10 4 17c-3 6 12 7 18 5c9-3 20 0 28-4" fill="none" stroke="#7cc4f0" stroke-width="2" stroke-linecap="round"/>
+  </g>
+  <!-- pine -->
+  <g>
+    <rect x="38.6" y="54.5" width="2.8" height="5" fill="#5d4230"/>
+    <path d="M40 42 46 50h-3.5l5 7h-4.5l5 7-16-7h4.5l-5-7h3.5z" fill="#3e8f4e"/>
+  </g>
+  <!-- campfire -->
+  <g>
+    <ellipse cx="83" cy="71" rx="5.5" ry="2.2" fill="#5c5f6e"/>
+    <path d="M83 57c4.5 4.5 5.5 7.5 5.5 9.5a5.5 5.5 0 0 1-11 0c0-2 1-5 5.5-9.5z" fill="#ff9f43"/>
+    <path d="M83 62.5c2.3 2.3 2.8 3.8 2.8 4.8a2.8 2.8 0 0 1-5.6 0c0-1 .5-2.5 2.8-4.8z" fill="#ffd166"/>
+  </g>
+</svg>
