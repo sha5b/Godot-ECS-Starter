@@ -266,25 +266,23 @@ func _on_chunk_unload_requested(coord: Vector2i) -> void:
 	SystemBus.terrain_chunk_unloaded.emit(coord)
 
 
-## Start queued jobs and commit finished ones, a bounded number per frame.
+## Commit finished chunks, then start new ones — in that order.
+##
+## The ordering IS the backpressure. Each payload carries the chunk's
+## density grid and its full mesh arrays, several megabytes together, so if
+## workers are allowed to run ahead of the main thread the finished-but-
+## uncommitted payloads pile up without bound. Reaping a task is what frees
+## its slot, and a task is only reaped when its result is actually consumed,
+## so at most `parallel` payloads can exist at once.
 func _pump_chunk_jobs() -> void:
 	var parallel := _max_parallel_jobs()
 	if parallel <= 0:
 		return
-	while not _gen_queue.is_empty() and _gen_tasks.size() < parallel:
-		var coord: Vector2i = _gen_queue.pop_front()
-		if _chunk_meshes.has(coord):
-			continue
-		_gen_tasks[coord] = WorkerThreadPool.add_task(_run_chunk_job.bind(coord))
 
-	# Drive completion off the TASK list, never off the results list.
-	# Reaping only coords that produced a payload leaked a worker slot every
-	# time a chunk was unloaded while its job was still in flight: the task
-	# id stayed in _gen_tasks forever, and after a few of those every slot
-	# was occupied by a job that would never be reaped, so streaming stopped
-	# dead. Retiring the task first guarantees the slot always comes back.
-	var committed := 0
+	var handled := 0
 	for coord in _gen_tasks.keys():
+		if handled >= _config.generation_commits_per_frame:
+			break
 		var task_id: int = int(_gen_tasks[coord])
 		if not WorkerThreadPool.is_task_completed(task_id):
 			continue
@@ -294,36 +292,18 @@ func _pump_chunk_jobs() -> void:
 		var payload: Dictionary = _gen_results.get(coord, {})
 		_gen_results.erase(coord)
 		_gen_mutex.unlock()
+		# Count discarded results too: the work of reaping is what we are
+		# budgeting, and a stale chunk still had to be produced.
+		handled += 1
 		if payload.is_empty() or _chunk_meshes.has(coord):
 			continue
-		if committed >= _config.generation_commits_per_frame:
-			# Reaped but not yet built: hold the payload for a later frame
-			# rather than dropping the work on the floor.
-			_gen_mutex.lock()
-			_gen_results[coord] = payload
-			_gen_mutex.unlock()
-			continue
 		_commit_chunk_payload(coord, payload)
-		committed += 1
 
-	# Payloads whose task was already retired on an earlier frame.
-	if committed < _config.generation_commits_per_frame:
-		_gen_mutex.lock()
-		var held: Array = _gen_results.keys()
-		_gen_mutex.unlock()
-		for coord in held:
-			if committed >= _config.generation_commits_per_frame:
-				break
-			if _gen_tasks.has(coord):
-				continue
-			_gen_mutex.lock()
-			var payload2: Dictionary = _gen_results.get(coord, {})
-			_gen_results.erase(coord)
-			_gen_mutex.unlock()
-			if payload2.is_empty() or _chunk_meshes.has(coord):
-				continue
-			_commit_chunk_payload(coord, payload2)
-			committed += 1
+	while not _gen_queue.is_empty() and _gen_tasks.size() < parallel:
+		var next: Vector2i = _gen_queue.pop_front()
+		if _chunk_meshes.has(next):
+			continue
+		_gen_tasks[next] = WorkerThreadPool.add_task(_run_chunk_job.bind(next))
 
 
 ## Worker entry point. Pure computation; hands the result back under lock.
@@ -441,7 +421,7 @@ func _commit_chunk_payload(coord: Vector2i, payload: Dictionary) -> void:
 	# Collision straight from the surface array: the mesh is already an
 	# un-indexed triangle soup, so re-extracting it with get_faces() only
 	# copied it back out again.
-	_create_chunk_collision_from_faces(coord, arrays[Mesh.ARRAY_VERTEX])
+	_create_chunk_collision_from_faces(coord, _faces_from_arrays(arrays))
 
 	if GameConfig.debug_draw_caves and _config.caves_enabled:
 		_debug_draw_cave_voids(coord, density, int(sqrt(surface_hm.size())), res_y, surface_hm)
@@ -2187,11 +2167,46 @@ func _build_marching_cubes_arrays(density: PackedFloat32Array,
 
 	# Direct array commit: SurfaceTool's per-vertex calls cost more than
 	# the entire marching-cubes pass above.
+	return _weld_surface(verts, norms, colors)
+
+
+## Index the marching-cubes output by welding duplicate vertices.
+##
+## The raw output is a triangle soup, so every vertex on a shared edge is
+## emitted once per triangle that touches it — roughly a sixfold
+## duplication. At world scale that was the single largest memory consumer
+## in the project: about 3.7 MB per chunk, which reached 1.2 GB by 330
+## chunks and pushed the process into swap.
+##
+## This is lossless. Marching-cubes vertices on a shared edge are computed
+## by the same interpolation from the same corner densities, and both the
+## normal and the vertex colour are functions of position, so duplicates
+## are genuinely identical. The key is snapped only to absorb float
+## ordering differences; the stored vertex is the original.
+func _weld_surface(verts: PackedVector3Array, norms: PackedVector3Array,
+		colors: PackedColorArray) -> Array:
+	var out_verts := PackedVector3Array()
+	var out_norms := PackedVector3Array()
+	var out_colors := PackedColorArray()
+	var indices := PackedInt32Array()
+	indices.resize(verts.size())
+	var seen := {}
+	for i in verts.size():
+		var key := verts[i].snapped(Vector3(0.0001, 0.0001, 0.0001))
+		var slot: int = seen.get(key, -1)
+		if slot < 0:
+			slot = out_verts.size()
+			seen[key] = slot
+			out_verts.append(verts[i])
+			out_norms.append(norms[i])
+			out_colors.append(colors[i])
+		indices[i] = slot
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_NORMAL] = norms
-	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_VERTEX] = out_verts
+	arrays[Mesh.ARRAY_NORMAL] = out_norms
+	arrays[Mesh.ARRAY_COLOR] = out_colors
+	arrays[Mesh.ARRAY_INDEX] = indices
 	return arrays
 
 
@@ -2202,6 +2217,20 @@ func _build_marching_cubes_mesh(density: PackedFloat32Array,
 		surface_hm: PackedFloat32Array, river_cells: Array) -> ArrayMesh:
 	return _mesh_from_arrays(_build_marching_cubes_arrays(
 		density, res_xz, res_y, coord, surface_hm, river_cells))
+
+
+## Expand an indexed surface back into the flat triangle list a concave
+## collision shape wants.
+func _faces_from_arrays(arrays: Array) -> PackedVector3Array:
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	if indices.is_empty():
+		return verts
+	var faces := PackedVector3Array()
+	faces.resize(indices.size())
+	for i in indices.size():
+		faces[i] = verts[indices[i]]
+	return faces
 
 
 func _mesh_from_arrays(arrays: Array) -> ArrayMesh:

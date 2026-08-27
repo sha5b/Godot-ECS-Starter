@@ -16,10 +16,17 @@ extends Node
 @export var chunk_size: float = 32.0
 
 ## How many chunks around the camera to keep loaded (radius).
-## 10 = 21x21 startup field (~670m span) — the loading frontier stays far
-## beyond the camera's max view distance, no fog tricks needed to hide it.
-## The world still streams outward as you move (closest chunks first).
-@export var load_radius: int = 10
+##
+## Measured on the target machine (Intel integrated GPU), fully streamed:
+##   r=4   81 chunks  461 MB  14 fps
+##   r=6  169 chunks  534 MB  23 fps
+##   r=8  289 chunks  ~1.0 GB  9 fps
+##   r=10 441 chunks  ~1.2 GB  1-2 fps, then stalls in swap
+## Terrain memory and triangle count scale with the chunk COUNT, so this
+## value dominates everything else in the frame budget. 6 gives a 416 m
+## field, which is well past what is legible at normal camera distances —
+## the far-ocean ring and the distance haze cover the frontier.
+@export var load_radius: int = 6
 
 ## Buffer beyond load_radius before unloading (prevents thrashing)
 @export var unload_buffer: int = 2
