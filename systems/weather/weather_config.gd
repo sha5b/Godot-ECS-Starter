@@ -25,6 +25,40 @@ extends Node
 ## Chance per tick to transition: cloudy → clear
 @export_range(0.0, 1.0) var chance_cloudy_to_clear: float = 0.3
 
+@export_group("Fog")
+## Chance per tick to transition: cloudy → fog (valley-mist event)
+@export_range(0.0, 1.0) var chance_cloudy_to_fog: float = 0.06
+
+## Chance per tick to transition: fog → clear (burn-off). Kept high so a
+## fog event is a passing mood, not a lingering white-out.
+@export_range(0.0, 1.0) var chance_fog_to_clear: float = 0.30
+
+## Target fog intensity during the "fog" state (0-1). Kept below 1.0: at
+## full strength the height band, aerial haze and volumetric soup stack
+## into a total white-out where only mountain peaks stay visible.
+@export_range(0.0, 1.0) var fog_intensity_max: float = 0.6
+
+## How fast fog_intensity lerps toward target (per second)
+@export var fog_intensity_lerp_speed: float = 0.2
+
+## Height above sea level where the fog band saturates during fog events —
+## mist pools in valleys below it while peaks above stay clear.
+@export var fog_valley_height_above_sea: float = 4.0
+
+## Distance fog density in clear weather (thin aerial haze)
+@export var fog_density_clear: float = 0.0012
+
+## Distance fog density at full rain or fog. Rain and fog events soften
+## the view, not erase it — the far ocean already hides the world edge.
+@export var fog_density_rain: float = 0.003
+
+## Baseline volumetric fog density (raised during fog events)
+@export var volumetric_fog_density_clear: float = 0.0002
+
+## Volumetric fog density at full fog intensity. With volumetric_fog_length
+## ~384m, values above ~0.001 fog half the view volume on their own.
+@export var volumetric_fog_density_fog: float = 0.0007
+
 ## How fast rain_intensity lerps toward target (per second)
 @export var rain_intensity_lerp_speed: float = 0.5
 
@@ -112,7 +146,7 @@ extends Node
 @export var sky_night_horizon: Color = Color(0.05, 0.05, 0.12)
 
 ## Fog color at noon
-@export var fog_noon: Color = Color(0.70, 0.75, 0.80)
+@export var fog_noon: Color = Color(0.82, 0.87, 0.93)
 
 ## Fog color at sunset
 @export var fog_sunset: Color = Color(0.80, 0.50, 0.30)

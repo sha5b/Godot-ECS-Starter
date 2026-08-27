@@ -35,7 +35,24 @@ func tick(world: EcsWorld, _delta: float, _frame: int) -> void:
 		var elemental := world.get_component(view.entity, &"CElemental") as CElemental
 		if elemental != null:
 			view.apply_elemental(elemental)
+		if view is CritterView:
+			_sync_critter_view(world, view)
 	_bindings = alive
+
+
+## Push genome and motion data into procedural critter views. Still one-way:
+## the view reads simulation state, never writes it.
+func _sync_critter_view(world: EcsWorld, view: CritterView) -> void:
+	var genome_comp := world.get_component(view.entity, &"CGenome") as CGenome
+	if genome_comp != null:
+		view.apply_genome(genome_comp.genome)
+	var velocity := world.get_component(view.entity, &"CVelocity") as CVelocity
+	if velocity != null:
+		var cap := 3.0
+		var agent := world.get_component(view.entity, &"CAgent") as CAgent
+		if agent != null and agent.move_speed > 0.0:
+			cap = agent.move_speed
+		view.apply_motion(velocity.linear.length() / cap)
 
 
 func binding_count() -> int:

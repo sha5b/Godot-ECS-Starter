@@ -25,6 +25,9 @@ var _environment: Environment
 ## Target rain intensity (smoothly lerped toward)
 var _target_rain_intensity: float = 0.0
 
+## Target valley-fog intensity set by the weather state machine.
+var _target_fog_intensity: float = 0.0
+
 ## Target wind strength (smoothly lerped toward)
 var _target_wind_strength: float = 1.0
 
@@ -165,12 +168,11 @@ func _update_sun() -> void:
 	_sun_light.light_color = _config.sun_color_horizon.lerp(_config.sun_color_noon, sun_height)
 
 	# Energy: bright during day, near-zero at night, smooth transition
-	var is_daytime := t > 0.22 and t < 0.78
-	if is_daytime:
-		_sun_light.light_energy = sun_height * 1.2
-	else:
-		_sun_light.light_energy = 0.02
-	_sun_light.shadow_enabled = is_daytime
+	_sun_light.light_energy = maxf(sun_height * 1.2, 0.02)
+	# Shadows stay crisp while the sun is meaningfully up. Near the horizon
+	# every trunk casts long raking dash-stripes across the ground and
+	# grazing angles bring out shadow-map acne — so they fade out instead.
+	_sun_light.shadow_enabled = sun_height > 0.12
 
 
 ## Update sky shader uniforms and fog based on time of day
@@ -221,10 +223,11 @@ func _update_sky() -> void:
 		sky_horizon = _config.sky_night_horizon
 		fog_color = _config.sky_night_horizon
 
-	# Update sky shader uniforms
+	# Update sky shader uniforms. Below the horizon blends toward the haze
+	# color family — a near-black "ground" reads as void at the world edge.
 	_sky_material.set_shader_parameter("sky_top_color", sky_top)
 	_sky_material.set_shader_parameter("sky_horizon_color", sky_horizon)
-	_sky_material.set_shader_parameter("ground_color", sky_top.darkened(0.7))
+	_sky_material.set_shader_parameter("ground_color", sky_horizon.darkened(0.10))
 
 	# Sun direction from light rotation
 	if _sun_light:
@@ -232,17 +235,33 @@ func _update_sky() -> void:
 		_sky_material.set_shader_parameter("sun_direction", sun_dir)
 		_sky_material.set_shader_parameter("sun_color", _sun_light.light_color)
 
-	# Fog — denser and darker during local rain at camera
+	# Fog — a thin aerial haze matched to the sky horizon so distance fades
+	# into the sky instead of gray smog. Weather "fog" events raise a LOW
+	# height-fog band (sea level + a few meters): mist pools in the valleys
+	# while peaks above the band stay clear. Rain thickens the haze as
+	# before, but the clear-weather baseline stays subtle.
 	if _environment:
 		var cam := get_viewport().get_camera_3d()
 		var cam_pos := cam.global_position if cam else SharedWorld.camera_world_pos
 		var local_rain := get_local_weather(cam_pos.x, cam_pos.z)
-		var base_fog := fog_color.lerp(sky_horizon, 0.32)
+		var fog := clampf(SharedWorld.fog_intensity, 0.0, 1.0)
+		var haze := fog_color.lerp(sky_horizon, 0.72)
 		var rain_tint := Color(0.76, 0.82, 0.90)
-		var rain_fog := base_fog.lerp(rain_tint, local_rain * 0.22)
-		rain_fog = rain_fog.darkened(local_rain * 0.08)
-		_environment.fog_light_color = rain_fog
-		_environment.fog_density = lerpf(0.0014, 0.0036, pow(local_rain, 0.8))
+		haze = haze.lerp(rain_tint, local_rain * 0.25)
+		haze = haze.darkened(local_rain * 0.08)
+		haze = haze.lerp(Color(0.84, 0.87, 0.90), fog * 0.6)
+		_environment.fog_light_color = haze
+		_environment.volumetric_fog_albedo = haze
+		var wet := maxf(local_rain, fog * 0.7)
+		_environment.fog_density = lerpf(_config.fog_density_clear, _config.fog_density_rain, pow(wet, 0.8))
+		_environment.fog_height = lerpf(24.0, SharedWorld.sea_level + _config.fog_valley_height_above_sea, fog)		# Height-band density. Godot's height fog is EXPONENTIAL in height:
+		# effective density = fog_density * exp(height_density * meters
+		# below fog_height). Usable values at this world's scale (terrain
+		# 0-35m, band at sea+4m) are ~0.02-0.09 — anything near 1.0
+		# multiplies valley density by e^(1.0*10m) = 22000x and whites out
+		# everything below the band.
+		_environment.fog_height_density = lerpf(0.015, 0.09, maxf(local_rain * 0.5, fog))
+		_environment.volumetric_fog_density = lerpf(_config.volumetric_fog_density_clear, _config.volumetric_fog_density_fog, fog)
 
 
 func _find_sky_material() -> void:
@@ -299,7 +318,12 @@ func _update_weather_tick(delta: float) -> void:
 		&"cloudy":
 			if roll < _config.chance_cloudy_to_rain:
 				SharedWorld.weather_state = &"rain"
-			elif roll < _config.chance_cloudy_to_rain + _config.chance_cloudy_to_clear:
+			elif roll < _config.chance_cloudy_to_rain + _config.chance_cloudy_to_fog:
+				SharedWorld.weather_state = &"fog"
+			elif roll < _config.chance_cloudy_to_rain + _config.chance_cloudy_to_fog + _config.chance_cloudy_to_clear:
+				SharedWorld.weather_state = &"clear"
+		&"fog":
+			if roll < _config.chance_fog_to_clear:
 				SharedWorld.weather_state = &"clear"
 		&"rain":
 			if roll < _config.chance_rain_to_storm:
@@ -310,16 +334,23 @@ func _update_weather_tick(delta: float) -> void:
 			if roll < _config.chance_storm_to_rain:
 				SharedWorld.weather_state = &"rain"
 
-	# Set target rain intensity based on state
+	# Set target rain and fog intensity based on state
 	match SharedWorld.weather_state:
 		&"clear":
 			_target_rain_intensity = 0.0
+			_target_fog_intensity = 0.0
 		&"cloudy":
 			_target_rain_intensity = 0.05
+			_target_fog_intensity = 0.0
 		&"rain":
 			_target_rain_intensity = _config.rain_intensity_rain
+			_target_fog_intensity = 0.0
 		&"storm":
 			_target_rain_intensity = _config.rain_intensity_storm
+			_target_fog_intensity = 0.0
+		&"fog":
+			_target_rain_intensity = 0.0
+			_target_fog_intensity = _config.fog_intensity_max
 
 	# Set target wind strength based on state + gusts
 	var base_wind := randf_range(_config.wind_min, _config.wind_max)
@@ -349,11 +380,15 @@ func _update_weather_tick(delta: float) -> void:
 		SystemBus.weather_changed.emit(state_dict)
 
 
-## Smoothly lerp rain intensity and wind toward targets each frame
+## Smoothly lerp rain intensity, fog intensity and wind toward targets each frame
 func _smooth_weather_transitions(delta: float) -> void:
 	# Smooth rain intensity
 	var lerp_speed := _config.rain_intensity_lerp_speed * delta
 	SharedWorld.rain_intensity = lerpf(SharedWorld.rain_intensity, _target_rain_intensity, lerp_speed)
+
+	# Smooth valley-fog intensity (slow both ways — mist rolls in and burns off)
+	var fog_lerp := _config.fog_intensity_lerp_speed * delta
+	SharedWorld.fog_intensity = lerpf(SharedWorld.fog_intensity, _target_fog_intensity, fog_lerp)
 
 	# Smooth wind strength
 	var wind_lerp := _config.wind_lerp_speed * delta

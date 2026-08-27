@@ -20,11 +20,14 @@ var wind_vector: Vector3:
 	get:
 		return wind_direction * wind_strength
 
-## Current weather state name (clear, cloudy, rain, storm)
+## Current weather state name (clear, cloudy, rain, storm, fog)
 var weather_state: StringName = &"clear"
 
 ## Rain intensity 0.0 (dry) to 1.0 (heavy)
 var rain_intensity: float = 0.0
+
+## Valley-fog event intensity 0.0 (off) to 1.0 (thick mist pooling low)
+var fog_intensity: float = 0.0
 
 # --- Camera / Spatial ---
 ## Current chunk coordinate the camera is in

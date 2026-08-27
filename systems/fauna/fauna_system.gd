@@ -380,6 +380,7 @@ func _spawn_building_visual(building_id: StringName, world_pos: Vector3, buildin
 	var root := Node3D.new()
 	root.name = str(building_id)
 	root.position = world_pos
+	_snap_prop_to_surface(root)
 	var body := MeshInstance3D.new()
 	var material := StandardMaterial3D.new()
 	material.roughness = 1.0
@@ -495,6 +496,28 @@ func _refresh_tribes() -> void:
 			continue
 		_register_tribe_for_group(group_id, _fauna_ai[leader_id], group_data.get("center", Vector3.ZERO))
 	_sync_shared_registries()
+const TERRAIN_SYSTEM_SCRIPT = preload("res://systems/terrain/terrain_system.gd")
+var _terrain_system: BaseSystem = null
+
+
+## Glue a shelter or building to the generated ground: take the authoritative
+## carved-surface height from the terrain system, then tilt onto the surface
+## normal so wide props don't float on slopes.
+func _snap_prop_to_surface(root: Node3D) -> void:
+	if _terrain_system == null:
+		_terrain_system = _find_system_by_type(TERRAIN_SYSTEM_SCRIPT) as BaseSystem
+	if _terrain_system == null:
+		return
+	var pos := root.position
+	if _terrain_system.has_method("_sample_loaded_surface_height"):
+		pos.y = _terrain_system._sample_loaded_surface_height(pos.x, pos.z) - 0.02
+	if _terrain_system.has_method("_sample_loaded_surface_normal"):
+		var normal: Vector3 = _terrain_system._sample_loaded_surface_normal(pos.x, pos.z, 1.0)
+		if normal.dot(Vector3.UP) < 0.999:
+			root.quaternion = Quaternion(Vector3.UP, normal)
+	root.position = pos
+
+
 func _spawn_shelter_visual(site_id: StringName, world_pos: Vector3, shelter_type: StringName) -> void:
 	_ensure_shelter_root()
 	if _shelter_nodes.has(site_id):
@@ -502,6 +525,7 @@ func _spawn_shelter_visual(site_id: StringName, world_pos: Vector3, shelter_type
 	var root := Node3D.new()
 	root.name = str(site_id)
 	root.position = world_pos
+	_snap_prop_to_surface(root)
 	var material := StandardMaterial3D.new()
 	material.roughness = 1.0
 	material.albedo_color = Color(0.35, 0.26, 0.18, 1.0)

@@ -3,14 +3,14 @@
 [ext_resource type="Script" path="res://systems/flora/flora_entry.gd" id="1_fe"]
 
 [sub_resource type="CylinderMesh" id="Trunk"]
-top_radius = 0.08
-bottom_radius = 0.12
-height = 2.0
+top_radius = 0.1
+bottom_radius = 0.16
+height = 3.0
 
 [sub_resource type="CylinderMesh" id="Canopy"]
 top_radius = 0.0
-bottom_radius = 0.7
-height = 2.5
+bottom_radius = 1.0
+height = 4.0
 
 [sub_resource type="StandardMaterial3D" id="Mat_trunk"]
 albedo_color = Color(0.35, 0.22, 0.12, 1)
@@ -25,7 +25,7 @@ spawn_weight = 2.5
 min_height = 0.1
 max_height = 0.7
 scale_min = 0.8
-scale_max = 1.6
+scale_max = 1.8
 allowed_biomes = Array[StringName]([&"taiga", &"mountain", &"forest"])
 density_multiplier = 1.0
 random_rotation = true
@@ -40,9 +40,9 @@ wind_sway_strength = 0.35
 [node name="Trunk" type="MeshInstance3D" parent="."]
 mesh = SubResource("Trunk")
 material_override = SubResource("Mat_trunk")
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.0, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
 
 [node name="Canopy" type="MeshInstance3D" parent="."]
 mesh = SubResource("Canopy")
 material_override = SubResource("Mat_canopy")
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.75, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.4, 0)

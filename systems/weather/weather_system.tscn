@@ -37,6 +37,8 @@ script = ExtResource("2_wc")
 light_color = Color(1, 0.95, 0.85, 1)
 light_energy = 1.0
 shadow_enabled = true
+shadow_normal_bias = 2.0
+directional_shadow_max_distance = 250.0
 
 [node name="RainParticles" type="GPUParticles3D" parent="."]
 emitting = false

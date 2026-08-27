@@ -3,9 +3,9 @@
 [ext_resource type="Script" path="res://systems/flora/flora_entry.gd" id="1_fe"]
 
 [sub_resource type="CylinderMesh" id="Trunk"]
-top_radius = 0.15
-bottom_radius = 0.25
-height = 2.0
+top_radius = 0.18
+bottom_radius = 0.32
+height = 3.6
 radial_segments = 6
 
 [sub_resource type="StandardMaterial3D" id="TrunkMat"]
@@ -13,8 +13,8 @@ albedo_color = Color(0.4, 0.28, 0.15, 1)
 roughness = 0.9
 
 [sub_resource type="SphereMesh" id="Canopy"]
-radius = 1.2
-height = 1.8
+radius = 1.7
+height = 2.6
 radial_segments = 8
 rings = 4
 
@@ -29,7 +29,7 @@ spawn_weight = 3.0
 min_height = 0.03
 max_height = 0.6
 scale_min = 0.7
-scale_max = 1.5
+scale_max = 1.7
 allowed_biomes = Array[StringName]([&"forest", &"plains", &"rainforest", &"swamp"])
 density_multiplier = 1.0
 random_rotation = true
@@ -44,9 +44,9 @@ wind_sway_strength = 0.35
 [node name="Trunk" type="MeshInstance3D" parent="."]
 mesh = SubResource("Trunk")
 material_override = SubResource("TrunkMat")
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.0, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.8, 0)
 
 [node name="Canopy" type="MeshInstance3D" parent="."]
 mesh = SubResource("Canopy")
 material_override = SubResource("CanopyMat")
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.5, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 4.3, 0)

@@ -113,9 +113,13 @@ func _setup_mesh() -> void:
 	_foliage_mesh = _build_cross_quad_mesh(_config.quad_width, _config.quad_height)
 
 
-## Three vertical quads crossed at 60 degrees. Camera-facing billboards
+## Six blades splayed outward from the base. Camera-facing billboards
 ## collapse into thin slivers when viewed from the RTS god camera's steep
-## top-down angle; crossed quads stay full from every view direction.
+## top-down angle — and so do plain vertical crossed quads, because a
+## vertical quad projects to a line from above no matter how wide it is.
+## Tipping each blade outward around its base edge gives every tuft a full
+## silhouette from above without a horizontal canopy card (which samples
+## the vertical blade art sideways and reads as a flat square dot).
 ## UV.y runs 0 at the base to 1 at the top, matching the shader's wind
 ## bend and brightness gradients.
 func _build_cross_quad_mesh(width: float, height: float) -> ArrayMesh:
@@ -125,14 +129,19 @@ func _build_cross_quad_mesh(width: float, height: float) -> ArrayMesh:
 	var uvs := PackedVector2Array()
 	var indices := PackedInt32Array()
 	var half_w := width * 0.5
-	for blade in 3:
-		var angle := TAU * float(blade) / 3.0
-		var dir := Vector3(cos(angle), 0.0, sin(angle)) * half_w
+	var tip_radians := deg_to_rad(26.0)
+	var lean := height * sin(tip_radians)
+	var top_y := height * cos(tip_radians)
+	for blade in 6:
+		var angle := TAU * float(blade) / 6.0
+		var across := Vector3(cos(angle), 0.0, sin(angle)) * half_w
+		var outward := Vector3(-sin(angle), 0.0, cos(angle)) * lean
+		var top := Vector3.UP * top_y + outward
 		var base_index := verts.size()
-		verts.append(Vector3(-dir.x, 0.0, -dir.z))
-		verts.append(Vector3(dir.x, 0.0, dir.z))
-		verts.append(Vector3(dir.x, height, dir.z))
-		verts.append(Vector3(-dir.x, height, -dir.z))
+		verts.append(-across)
+		verts.append(across)
+		verts.append(across * 0.82 + top)
+		verts.append(-across * 0.82 + top)
 		uvs.append(Vector2(0.0, 0.0))
 		uvs.append(Vector2(1.0, 0.0))
 		uvs.append(Vector2(1.0, 1.0))

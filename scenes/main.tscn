@@ -18,13 +18,14 @@
 [ext_resource type="PackedScene" path="res://systems/foliage/foliage_system.tscn" id="18_foliage"]
 [ext_resource type="PackedScene" path="res://systems/ecs/ecs_system.tscn" id="19_ecs"]
 [ext_resource type="Script" path="res://scenes/rts_camera.gd" id="20_cam"]
-[ext_resource type="PackedScene" path="res://systems/world/edge_fog_system.tscn" id="21_fog"]
+[ext_resource type="Script" path="res://scenes/observer_hud.gd" id="22_observer"]
+[ext_resource type="Script" path="res://scenes/body_lab_portal.gd" id="23_lab"]
 
 [sub_resource type="ShaderMaterial" id="SkyMat_1"]
 shader = ExtResource("12_cloud_shader")
 shader_parameter/sky_top_color = Color(0.35, 0.55, 0.85, 1)
 shader_parameter/sky_horizon_color = Color(0.65, 0.75, 0.85, 1)
-shader_parameter/ground_color = Color(0.15, 0.12, 0.1, 1)
+shader_parameter/ground_color = Color(0.62, 0.72, 0.84, 1)
 shader_parameter/sun_direction = Vector3(0, 0.4, -1)
 shader_parameter/sun_color = Color(1, 0.95, 0.85, 1)
 shader_parameter/sun_size = 0.02
@@ -36,14 +37,18 @@ sky_material = SubResource("SkyMat_1")
 background_mode = 2
 sky = SubResource("Sky_1")
 tonemap_mode = 2
-ssao_enabled = true
+ssao_enabled = false
 fog_enabled = true
-fog_light_color = Color(0.7, 0.75, 0.8, 1)
-fog_density = 0.009
+fog_light_color = Color(0.8, 0.86, 0.93, 1)
+fog_density = 0.0012
+fog_height = 24.0
+fog_height_density = 0.015
 fog_sky_mode = 1
 volumetric_fog_enabled = true
-volumetric_fog_density = 0.001
-volumetric_fog_albedo = Color(0.7, 0.76, 0.85, 1)
+volumetric_fog_density = 0.0002
+volumetric_fog_anisotropy = 0.0
+volumetric_fog_length = 384.0
+volumetric_fog_albedo = Color(0.8, 0.86, 0.93, 1)
 
 [node name="World" type="Node3D" unique_id=1518519948]
 script = ExtResource("1_world")
@@ -78,12 +83,10 @@ transform = Transform3D(0.99961203, 0.027851852, 0, -0.027851852, 0.99961203, 0,
 
 [node name="EcsSystem" parent="." unique_id=1899447002 instance=ExtResource("19_ecs")]
 
-[node name="EdgeFogSystem" parent="." unique_id=177441002 instance=ExtResource("21_fog")]
-
 [node name="RtsCamera" type="Camera3D" parent="." unique_id=1820477511]
 script = ExtResource("20_cam")
 focus = Vector3(48, 0, 48)
-distance = 70.0
+distance = 100.0
 max_distance = 220.0
 focus_bounds = 900.0
 current = true
@@ -99,3 +102,21 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("8_hud")
+
+[node name="ObserverHUD" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("22_observer")
+
+[node name="BodyLabPortal" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("23_lab")

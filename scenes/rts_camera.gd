@@ -100,7 +100,20 @@ func _process(delta: float) -> void:
 	focus = focus.lerp(_target_focus, k)
 	yaw = lerp_angle(yaw, _target_yaw, k)
 	pitch = lerpf(pitch, _target_pitch, k)
-	_current_distance = lerpf(_current_distance, _target_distance, k)
+
+	# Boom: spring toward the wanted distance, but never through terrain.
+	# Shortening snaps fast (the camera must not clip a hill mid-orbit);
+	# releasing eases back with the same spring as the rest of the rig.
+	# A hard on/off clip here is what made right-drag rotate spasm over
+	# ridges — the ray grazes terrain every other frame and the length
+	# flickers between full and clipped.
+	var wanted := clampf(_target_distance, min_distance, max_distance)
+	var limit := _terrain_boom_limit()
+	if limit < _current_distance - 0.25:
+		var clip_k := 1.0 - exp(-30.0 * delta)
+		_current_distance = lerpf(_current_distance, minf(wanted, limit), clip_k)
+	else:
+		_current_distance = lerpf(_current_distance, wanted, k)
 	_apply(false)
 
 	SharedWorld.camera_world_pos = focus
@@ -120,27 +133,34 @@ func _pan_target(offset: Vector2) -> void:
 	_target_focus.y = _ground_height(_target_focus.x, _target_focus.z)
 
 
+## Longest boom length with a clear line from just above the focus to the
+## camera (INF when nothing blocks). Back faces are ignored so grazing
+## shots through cliff walls don't flicker.
+func _terrain_boom_limit() -> float:
+	var space := get_world_3d().direct_space_state if is_inside_tree() else null
+	if space == null:
+		return INF
+	var cos_p := cos(pitch)
+	var sin_p := sin(pitch)
+	var offset := Vector3(sin(yaw) * cos_p, sin_p, cos(yaw) * cos_p)
+	var from := focus + Vector3.UP * 1.5
+	var query := PhysicsRayQueryParameters3D.create(from, from + offset * _current_distance)
+	query.hit_back_faces = false
+	var hit := space.intersect_ray(query)
+	if hit.is_empty():
+		return INF
+	return maxf((hit["position"] as Vector3).distance_to(from) - 0.8, 4.0)
+
+
 func _apply(snap: bool) -> void:
 	var cos_p := cos(pitch)
 	var sin_p := sin(pitch)
 	var offset := Vector3(sin(yaw) * cos_p, sin_p, cos(yaw) * cos_p)
-	var length := _current_distance
-
-	# Terrain-aware boom: shorten the arm when a hill would block the view.
-	var space := get_world_3d().direct_space_state if is_inside_tree() else null
-	if space != null:
-		var from := focus + Vector3.UP * 1.5
-		var to := focus + offset * length
-		var query := PhysicsRayQueryParameters3D.create(from, to)
-		query.hit_back_faces = false
-		var hit := space.intersect_ray(query)
-		if not hit.is_empty():
-			length = maxf((hit["position"] as Vector3).distance_to(from) - 0.8, 4.0)
-
-	global_position = focus + offset * length
-	look_at(focus, Vector3.UP)
 	if snap:
 		global_position = focus + offset * _target_distance
+	else:
+		global_position = focus + offset * _current_distance
+	look_at(focus, Vector3.UP)
 
 
 ## Ground height under a point (0 where no terrain is loaded).

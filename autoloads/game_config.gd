@@ -16,9 +16,10 @@ extends Node
 @export var chunk_size: float = 32.0
 
 ## How many chunks around the camera to keep loaded (radius).
-## 2 = 5x5 startup field (160m span) — deep enough for the edge fog ring
-## to hide the loading frontier. The world streams outward as you move.
-@export var load_radius: int = 2
+## 10 = 21x21 startup field (~670m span) — the loading frontier stays far
+## beyond the camera's max view distance, no fog tricks needed to hide it.
+## The world still streams outward as you move (closest chunks first).
+@export var load_radius: int = 10
 
 ## Buffer beyond load_radius before unloading (prevents thrashing)
 @export var unload_buffer: int = 2

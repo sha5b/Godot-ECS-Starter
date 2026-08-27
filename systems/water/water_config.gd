@@ -72,3 +72,12 @@ extends Node
 
 ## Strength of the shoreline break ripple pattern
 @export_range(0.0, 2.0) var shore_break_strength: float = 0.55
+
+@export_group("Far Ocean")
+## Endless ocean ring past the loaded chunk frontier — the world ends in
+## open water fading into haze instead of a terrain cut over void.
+@export var far_ocean_enabled: bool = true
+
+## How far (meters) the ring extends beyond the loaded region. Should
+## comfortably exceed the fog distance so the ring edge is never visible.
+@export_range(128.0, 2048.0, 8.0) var far_ocean_extent: float = 480.0

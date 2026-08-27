@@ -29,6 +29,7 @@ var movement := MovementSystem.new()
 var tiers := TierSystem.new()
 var vitality := VitalitySystem.new()
 var view_sync := ViewSyncSystem.new()
+var breeding := BreedingSystem.new()
 
 var _config: EcsConfig
 var _stat_timer := 0
@@ -36,6 +37,7 @@ var _stat_timer := 0
 ## World population bookkeeping: chunk coord -> spawned entity ids.
 var _chunk_entities: Dictionary = {}
 var _populate_rng := RandomNumberGenerator.new()
+var _terrain_for_normals: BaseSystem = null
 
 
 func _initialize() -> void:
@@ -70,6 +72,12 @@ func _initialize() -> void:
 		scheduler.register(&"chemistry", chemistry.tick, EcsScheduler.Phase.SIM, 40)
 	if _config.vitality_enabled:
 		scheduler.register(&"vitality", vitality.tick, EcsScheduler.Phase.SIM, 50)
+	if _config.breeding_enabled:
+		breeding.partner_radius = _config.breed_partner_radius
+		breeding.breed_cooldown = _config.breed_cooldown
+		breeding.max_population = _config.breed_max_population
+		breeding.mutation_rate = _config.critter_mutation_rate
+		scheduler.register(&"breeding", breeding.tick, EcsScheduler.Phase.SIM, 55)
 	if _config.view_sync_enabled:
 		scheduler.register(&"view_sync", view_sync.tick, EcsScheduler.Phase.VIEW, 70)
 
@@ -207,15 +215,32 @@ func _spawn_critters(chunk_data: ChunkData, origin: Vector3,
 		world.add_component(entity, body)
 		world.add_component(entity, CElemental.new())
 		var health := CHealth.new()
-		health.max_hp = 8.0
-		health.hp = 8.0
+		var genome_comp: CGenome = null
+		if _config.procedural_critters:
+			# Genome-backed body: morphology drives stats, selection can act.
+			genome_comp = CGenome.random(_populate_rng)
+			health.max_hp = genome_comp.derived_health_max
+			health.hp = genome_comp.derived_health_max
+		else:
+			health.max_hp = 8.0
+			health.hp = 8.0
 		world.add_component(entity, health)
 		var agent := CAgent.new()
 		agent.brain = UtilityBrain.critter_brain()
-		agent.move_speed = _populate_rng.randf_range(2.6, 3.8)
+		if genome_comp != null:
+			agent.move_speed = genome_comp.derived_move_speed
+		else:
+			agent.move_speed = _populate_rng.randf_range(2.6, 3.8)
 		world.add_component(entity, agent)
-		view_sync.bind(entity, _make_simple_view(transform.position,
-			Color(0.85, 0.7, 0.45), 0.8, &"capsule"))
+		if genome_comp != null:
+			world.add_component(entity, genome_comp)
+			var critter_view := CritterView.new()
+			critter_view.position = transform.position
+			add_child(critter_view)
+			view_sync.bind(entity, critter_view)
+		else:
+			view_sync.bind(entity, _make_simple_view(transform.position,
+				Color(0.85, 0.7, 0.45), 0.8, &"capsule"))
 		entities.append(entity)
 
 
@@ -275,7 +300,9 @@ func _spawn_campfire(chunk_data: ChunkData, origin: Vector3,
 		var elemental := CElemental.new()
 		elemental.constant_elements[ChemistryDefs.Element.FIRE] = 1.0
 		world.add_component(entity, elemental)
-		view_sync.bind(entity, _make_campfire_view(transform.position))
+		var view := _make_campfire_view(transform.position)
+		_align_view(view, transform.position)
+		view_sync.bind(entity, view)
 		entities.append(entity)
 		return
 
@@ -283,7 +310,7 @@ func _spawn_campfire(chunk_data: ChunkData, origin: Vector3,
 ## Visible campfire: stone ring view plus an emissive flame and warm light.
 func _make_campfire_view(position: Vector3) -> EntityView:
 	var view := EntityView.new()
-	view.position = position
+	view.position = position - Vector3(0.0, 0.08, 0.0)
 	view.tint = Color(0.42, 0.27, 0.16)
 	var ring := MeshInstance3D.new()
 	var cylinder := CylinderMesh.new()
@@ -317,12 +344,32 @@ func _make_campfire_view(position: Vector3) -> EntityView:
 	return view
 
 
+## Terrain surface normal at a world position (UP when unavailable).
+func _ground_normal(wx: float, wz: float) -> Vector3:
+	if _terrain_for_normals == null:
+		_terrain_for_normals = _find_system_by_type(
+			preload("res://systems/terrain/terrain_system.gd")) as BaseSystem
+	if _terrain_for_normals != null \
+			and _terrain_for_normals.has_method("_sample_loaded_surface_normal"):
+		return _terrain_for_normals._sample_loaded_surface_normal(wx, wz, 1.0)
+	return Vector3.UP
+
+
+## Tilt a prop view onto the terrain slope so it doesn't float on hills.
+func _align_view(view: EntityView, position: Vector3) -> void:
+	var normal := _ground_normal(position.x, position.z)
+	if normal.dot(Vector3.UP) > 0.999:
+		return
+	view.quaternion = Quaternion(Vector3.UP, normal)
+
+
 ## Generic small prop view (sphere / box / capsule) for world content.
 func _make_simple_view(position: Vector3, tint: Color, size: float,
 		shape: StringName) -> EntityView:
 	var view := EntityView.new()
-	view.position = position
+	view.position = position - Vector3(0.0, 0.05, 0.0)
 	view.tint = tint
+	_align_view(view, position)
 	var mesh := MeshInstance3D.new()
 	match shape:
 		&"sphere":

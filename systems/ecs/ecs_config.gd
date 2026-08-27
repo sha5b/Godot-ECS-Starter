@@ -49,6 +49,28 @@ extends Node
 ## Grass only spawns on land at least this far above sea level.
 @export var populate_min_height_above_sea := 0.5
 
+@export_group("Procedural Critters")
+## Give ECS critters a CGenome: bodies are built procedurally from genome
+## data (see docs/PROCEDURAL_CRITTER_BODIES.md) instead of the simple
+## capsule view. Off until the Body Lab output passes visual QA.
+@export var procedural_critters := false
+
+## Run BreedingSystem — crossover + mutation reproduction for genome-backed
+## critters. Requires procedural_critters to produce carriers.
+@export var breeding_enabled := false
+
+## How close critters must stand to breed, in world units.
+@export var breed_partner_radius := 6.0
+
+## Seconds between breed attempts per critter.
+@export var breed_cooldown := 30.0
+
+## Population cap for genome-backed critters.
+@export var breed_max_population := 24
+
+## Mutation strength handed to the genome on birth (1 = default drift).
+@export var critter_mutation_rate := 1.0
+
 
 func _ready() -> void:
 	if chemistry_rules == null:

@@ -22,6 +22,11 @@ var _environment: Environment
 var _saved_fog_color: Color
 var _saved_fog_density: float
 
+## Far ocean ring state (see _update_far_ocean).
+var _far_ocean: MeshInstance3D
+var _far_ocean_material: ShaderMaterial
+var _far_ocean_chunk := Vector2i(999999, 999999)
+
 
 func _initialize() -> void:
 	system_name = &"WaterSystem"
@@ -131,7 +136,101 @@ func system_process(_delta: float) -> void:
 			var mat: ShaderMaterial = _chunk_materials[coord]
 			if mat:
 				mat.set_shader_parameter("time", time)
+		if _far_ocean_material:
+			_far_ocean_material.set_shader_parameter("time", time)
+	_update_far_ocean()
 	_update_underwater_effect()
+
+
+# ── Far ocean ─────────────────────────────────────────────────────────────────
+#
+# The loaded chunk region is a floating island of geometry; past its edge
+# there is nothing to catch the eye but sky-colored void. A flat ring of
+# deep ocean at sea level, kept one chunk beyond the streaming frontier,
+# gives the world a physical end: terrain coasts dissolve into open water
+# that fades into the distance fog. Rebuilt only when the camera chunk
+# changes, and never overlapping per-chunk water planes.
+
+func _update_far_ocean() -> void:
+	if not _config.far_ocean_enabled or not _sea_level_found:
+		return
+	if _far_ocean == null or not is_instance_valid(_far_ocean):
+		_build_far_ocean()
+	var chunk := SharedWorld.camera_chunk_pos
+	if chunk != _far_ocean_chunk:
+		_far_ocean_chunk = chunk
+		_far_ocean.mesh = _build_far_ocean_ring(chunk)
+		_far_ocean.position = Vector3(0.0, _sea_level + 0.05, 0.0)
+
+
+func _build_far_ocean() -> void:
+	var material := _water_material.duplicate() as ShaderMaterial
+	# Flat full-depth texture: the ring has no heightmap, and depth = 1
+	# selects the deep-water color zone (no shore foam, no caustics —
+	# only deep swell and whitecap crests).
+	var flat := Image.create(2, 2, false, Image.FORMAT_RF)
+	flat.fill(Color(1.0, 0.0, 0.0, 1.0))
+	material.set_shader_parameter("terrain_depth_tex", ImageTexture.create_from_image(flat))
+	var instance := MeshInstance3D.new()
+	instance.name = "FarOcean"
+	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	instance.material_override = material
+	add_child(instance)
+	_far_ocean = instance
+	_far_ocean_material = material
+
+
+## A rectangular ring: outer rect = inner (loaded region + 1 chunk margin)
+## expanded by far_ocean_extent; vertices are world-space XZ at local y 0.
+func _build_far_ocean_ring(chunk: Vector2i) -> ArrayMesh:
+	var cs := GameConfig.chunk_size
+	var margin := GameConfig.load_radius + 1
+	var inner_min := Vector2(float(chunk.x - margin) * cs, float(chunk.y - margin) * cs)
+	var inner_max := Vector2(float(chunk.x + margin + 1) * cs, float(chunk.y + margin + 1) * cs)
+	var ext := _config.far_ocean_extent
+	var outer_min := inner_min - Vector2.ONE * ext
+	var outer_max := inner_max + Vector2.ONE * ext
+
+	var verts := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var indices := PackedInt32Array()
+	# Four strips around the inner hole (N, S, W, E).
+	_append_ring_quad(verts, uvs, indices,
+		Vector2(outer_min.x, outer_min.y), Vector2(outer_max.x, inner_min.y))
+	_append_ring_quad(verts, uvs, indices,
+		Vector2(outer_min.x, inner_max.y), Vector2(outer_max.x, outer_max.y))
+	_append_ring_quad(verts, uvs, indices,
+		Vector2(outer_min.x, inner_min.y), Vector2(inner_min.x, inner_max.y))
+	_append_ring_quad(verts, uvs, indices,
+		Vector2(inner_max.x, inner_min.y), Vector2(outer_max.x, outer_max.y))
+
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
+## One quad of the ring, wound to face +Y (the water shader culls back
+## faces and reads UV only to sample the flat depth texture).
+func _append_ring_quad(verts: PackedVector3Array, uvs: PackedVector2Array,
+		indices: PackedInt32Array, min_xz: Vector2, max_xz: Vector2) -> void:
+	var base := verts.size()
+	verts.append(Vector3(min_xz.x, 0.0, min_xz.y))
+	verts.append(Vector3(max_xz.x, 0.0, min_xz.y))
+	verts.append(Vector3(max_xz.x, 0.0, max_xz.y))
+	verts.append(Vector3(min_xz.x, 0.0, max_xz.y))
+	for i in 4:
+		uvs.append(Vector2(0.5, 0.5))
+	indices.append(base)
+	indices.append(base + 3)
+	indices.append(base + 1)
+	indices.append(base + 1)
+	indices.append(base + 3)
+	indices.append(base + 2)
 
 
 ## Detect if camera is underwater and apply fog/tint effect
