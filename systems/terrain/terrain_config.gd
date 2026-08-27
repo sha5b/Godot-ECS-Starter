@@ -364,3 +364,19 @@ extends Node
 
 ## Number of thermal erosion passes
 @export var thermal_iterations: int = 3
+
+
+@export_group("Generation Threading")
+## Build chunks on WorkerThreadPool instead of the main thread. The output
+## is identical either way; this only moves the ~265 ms of pure computation
+## per chunk off the frame, so the game stays responsive while streaming.
+@export var threaded_generation: bool = true
+
+## Upper bound on chunks generated concurrently. The effective count is
+## also capped at CPU cores - 2.
+@export_range(1, 16) var generation_max_threads: int = 4
+
+## Finished chunks turned into engine objects per frame. Each commit still
+## costs a few ms on the main thread (mesh resource + collision shape), so
+## this bounds the hitch when many finish at once.
+@export_range(1, 8) var generation_commits_per_frame: int = 2

@@ -56,3 +56,14 @@ extends Node
 
 ## Maximum seedlings allowed per chunk (prevents overgrowth)
 @export var max_seedlings_per_chunk: int = 10
+
+
+@export_group("View Distance")
+## Beyond this distance flora props stop rendering. Each prop is its own
+## scene instance, so with a large load radius this is many thousands of
+## draw calls; trees carry further than ground cover because they read as
+## silhouette from much further away.
+@export_range(0.0, 2048.0, 16.0) var view_distance: float = 380.0
+
+## Dissolve band before view_distance, so props fade rather than pop.
+@export_range(0.0, 256.0, 4.0) var view_fade: float = 64.0

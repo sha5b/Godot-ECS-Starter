@@ -28,3 +28,14 @@ extends Node
 ## Recolor foliage instances near ECS chemistry events (fire spread,
 ## charred patches, freezing). Costs nothing until events fire.
 @export var chemistry_reactive: bool = true
+
+
+@export_group("View Distance")
+## Beyond this distance a chunk's grass stops rendering. Ground cover is
+## the densest thing in the world (thousands of instances per chunk over
+## hundreds of chunks) and it is also the first thing that stops being
+## readable with distance, so it is the cheapest thing to cull.
+@export_range(32.0, 1024.0, 8.0) var view_distance: float = 170.0
+
+## Dissolve band before view_distance, so chunks fade rather than pop.
+@export_range(0.0, 128.0, 2.0) var view_fade: float = 32.0

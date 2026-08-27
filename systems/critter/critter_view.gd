@@ -15,8 +15,9 @@ extends EntityView
 ## is also pointless for a creature a few hundred metres away. So:
 ##
 ##   tier 0 (near)   full body, gait every frame
-##   tier 1 (mid)    full body, gait at 1/4 cadence with scaled delta
-##   tier 2+ (far)   no body at all; the rig is freed
+##   tier 1+ (mid)   no body at all; the rig is freed
+## (detail_cutoff_tier moves that line; the gait cadence table below still
+## supports a mid tier if a scene wants richer detail.)
 ##
 ## Dropping the body is safe precisely because it is a view: the genome is
 ## the authority and rebuilding from it is deterministic, so a critter that
@@ -29,8 +30,10 @@ extends EntityView
 @export var demo_speed_ratio := -1.0
 
 ## First tier at which the procedural body is dropped entirely.
-## 2 keeps full rigs for near and mid critters only.
-@export var detail_cutoff_tier := 2
+## 1 = near critters only. Measured on the streamed world, allowing mid
+## tier as well put 232 full rigs in the scene at once; near-only holds it
+## to a couple of dozen, and tier 0 already reaches 40 m from the focus.
+@export var detail_cutoff_tier := 1
 
 ## Gait ticks per tier, mirroring EcsWorld.TIER_CADENCE. 0 = never.
 const GAIT_CADENCE := [1, 4, 0, 0]

@@ -33,6 +33,10 @@ var debug_profile := false
 var profile_sections := {}
 
 var _grid_frame := 0
+## Shadow grid + cursor for the sliced rebuild.
+var _shadow := EcsSpatialGrid.new()
+var _grid_cursor := 0
+var _grid_primed := false
 
 ## Environment context, refreshed by the bridge from SharedWorld.
 var env := {
@@ -75,17 +79,26 @@ func tick(world: EcsWorld, delta: float, frame: int) -> void:
 	if _cache == null:
 		_cache = world.query([&"CTransform", &"CElemental", &"CBody"])
 	_grid_frame += 1
-	if _grid_frame == 1 or _grid_frame % grid_rebuild_interval == 0:
-		_profile("grid", world, func() -> void: _rebuild_grid(world))
+	_profile("grid", world, func() -> void: _rebuild_grid_slice(world))
 	_profile("sim", world, func() -> void: _tick_sim(world, delta, frame))
 	_profile("spread", world, func() -> void: _tick_spread(world, delta, frame))
 	_profile("auras", world, func() -> void: _apply_source_auras(world, delta))
 
 
 func _tick_sim(world: EcsWorld, delta: float, frame: int) -> void:
+	var raining: bool = float(env["rain_intensity"]) > 0.0
 	for entity in world.frame_entities(_cache, frame):
-		var transform := world.get_component(entity, &"CTransform") as CTransform
 		var elemental := world.get_component(entity, &"CElemental") as CElemental
+		# Fast path for inert matter. The overwhelming majority of chemistry
+		# bodies are plain dry grass carrying no elements: every pass over
+		# them evaporates nothing, decays nothing and reacts to nothing, but
+		# still costs three component lookups and a walk of two dictionaries.
+		# Skipping them outright is what keeps the cost proportional to how
+		# much of the world is actually ON FIRE rather than how much of it
+		# exists.
+		if elemental != null and not _is_active(elemental, raining):
+			continue
+		var transform := world.get_component(entity, &"CTransform") as CTransform
 		var body := world.get_component(entity, &"CBody") as CBody
 		var dt := world.entity_delta(entity, delta)
 		_apply_environment(elemental, body, dt)
@@ -93,6 +106,18 @@ func _tick_sim(world: EcsWorld, delta: float, frame: int) -> void:
 		# at coarse tier deltas.
 		_process_elements(world, entity, transform, elemental, body, dt)
 		_decay_elements(elemental, dt)
+
+
+## Could anything about this body change this tick? Anything not listed
+## here has no state to advance and no way to acquire any.
+func _is_active(elemental: CElemental, raining: bool) -> bool:
+	return raining \
+		or elemental.burning \
+		or elemental.frozen \
+		or elemental.wetness > 0.0 \
+		or elemental.shock_timer > 0.0 \
+		or not elemental.elements.is_empty() \
+		or not elemental.constant_elements.is_empty()
 
 
 func _tick_spread(world: EcsWorld, delta: float, frame: int) -> void:
@@ -393,6 +418,51 @@ func reaction(body: CBody, element: int) -> ElementReaction:
 	return rules.reaction_for(element, body.material)
 
 
+## Rebuild the spatial grid a slice at a time, into a shadow grid that is
+## swapped in when a full pass completes.
+##
+## Rebuilding it in one hit walked every chemistry body — well over ten
+## thousand once the world has streamed in — and showed up as a 30-50 ms
+## spike every few frames. Spreading one pass over grid_rebuild_interval
+## frames keeps the same refresh rate at a fraction of the peak cost. The
+## grid stays whole while the shadow fills, so radius queries never see a
+## half-built structure.
+func _rebuild_grid_slice(world: EcsWorld) -> void:
+	if _cache == null:
+		return
+	var entities := world.all_entities_scratch(_cache)
+	var total := entities.size()
+	if total == 0:
+		grid.clear()
+		return
+	# The first pass must be whole: until one completes there is no grid at
+	# all, and radius queries (fire spread, arcs, auras) would silently find
+	# nothing. After that, slices keep it fresh at the same refresh rate.
+	if not _grid_primed:
+		_rebuild_grid(world)
+		_grid_primed = true
+		_grid_cursor = 0
+		return
+	var slice := maxi(total / maxi(grid_rebuild_interval, 1), 1)
+	if _grid_cursor == 0:
+		_shadow.clear()
+	var processed := 0
+	while processed < slice and _grid_cursor < total:
+		var entity := entities[_grid_cursor]
+		var transform := world.get_component(entity, &"CTransform") as CTransform
+		if transform != null:
+			_shadow.insert(entity, transform.position)
+		_grid_cursor += 1
+		processed += 1
+	if _grid_cursor >= total:
+		_grid_cursor = 0
+		var finished := grid
+		grid = _shadow
+		_shadow = finished
+
+
+## Full immediate rebuild — used by tests and by anything that needs the
+## grid correct right now rather than within one refresh pass.
 func _rebuild_grid(world: EcsWorld) -> void:
 	grid.clear()
 	if _cache == null:

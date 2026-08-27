@@ -28,12 +28,20 @@ func tick(world: EcsWorld, _delta: float, frame: int) -> void:
 			view.queue_free()
 			continue
 		alive.append(ref)
+		var tier := world.tier_of(view.entity)
+		# LOD first, and UNCONDITIONALLY. This is what tells a critter view
+		# to drop its rig, so it has to reach views that the cadence gate
+		# below skips — dormant entities have cadence 0, and gating this
+		# behind it meant the far critters were exactly the ones never told
+		# to free their bodies.
+		if view is CritterView:
+			(view as CritterView).apply_detail(tier)
 		# Mirror at the entity's processing cadence, not unconditionally.
 		# Pushing a transform into the scene tree for every bound view every
 		# frame ignored tiering entirely, so dormant actors hundreds of
 		# metres away still cost a global_position write (and the transform
 		# propagation it triggers) 60 times a second.
-		var cadence := world.TIER_CADENCE[world.tier_of(view.entity)]
+		var cadence := world.TIER_CADENCE[tier]
 		if cadence == 0 or (frame + (view.entity & 0xFFFFFFFF)) % cadence != 0:
 			continue
 		var transform := world.get_component(view.entity, &"CTransform") as CTransform
@@ -51,9 +59,6 @@ func tick(world: EcsWorld, _delta: float, frame: int) -> void:
 ## Push genome and motion data into procedural critter views. Still one-way:
 ## the view reads simulation state, never writes it.
 func _sync_critter_view(world: EcsWorld, view: CritterView) -> void:
-	# Tier first: it decides whether a rig should exist at all, so pushing
-	# the genome afterwards will not build a body for a distant critter.
-	view.apply_detail(world.tier_of(view.entity))
 	var genome_comp := world.get_component(view.entity, &"CGenome") as CGenome
 	if genome_comp != null:
 		view.apply_genome(genome_comp.genome)

@@ -244,10 +244,14 @@ func _build_chunk_foliage(coord: Vector2i, biome_map: PackedByteArray) -> bool:
 	foliage_instance.position = Vector3(world_pos.x, 0.0, world_pos.z)
 	foliage_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF if not _config.cast_shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	foliage_instance.extra_cull_margin = cs
+	if _config.view_distance > 0.0:
+		foliage_instance.visibility_range_end = _config.view_distance
+		foliage_instance.visibility_range_end_margin = _config.view_fade
+		foliage_instance.visibility_range_fade_mode = \
+			GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 	add_child(foliage_instance)
 	_chunk_foliage[coord] = foliage_instance
 	SystemBus.flora_chunk_spawned.emit(coord, instances.size())
-	print("[FoliageSystem] Spawned %d foliage instances for chunk %s" % [instances.size(), str(coord)])
 	return true
 
 func _generate_chunk_foliage_instances(coord: Vector2i, biome_map: PackedByteArray,

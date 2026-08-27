@@ -12,22 +12,16 @@ var _ecs: Node
 var _camera: Camera3D
 var _step := 0
 var _timer := 0.0
-var _warmup := 25.0
+var _warmup := 30.0
 var _settle := 2.2
 var _log: Array[String] = []
 
 ## name, time_of_day, weather_state, rain, fog, cam distance, cam pitch
 var _shots := [
 	{"n": "01_noon_clear",   "t": 0.50, "w": &"clear",  "r": 0.0, "f": 0.0, "d": 110.0, "p": 0.62},
-	{"n": "02_noon_close",   "t": 0.50, "w": &"clear",  "r": 0.0, "f": 0.0, "d": 30.0,  "p": 0.35},
-	{"n": "03_sunrise",      "t": 0.25, "w": &"clear",  "r": 0.0, "f": 0.0, "d": 110.0, "p": 0.30},
-	{"n": "04_sunset",       "t": 0.78, "w": &"clear",  "r": 0.0, "f": 0.0, "d": 110.0, "p": 0.30},
-	{"n": "05_night",        "t": 0.00, "w": &"clear",  "r": 0.0, "f": 0.0, "d": 110.0, "p": 0.50},
-	{"n": "06_rain",         "t": 0.50, "w": &"rain",   "r": 0.5, "f": 0.0, "d": 110.0, "p": 0.50},
-	{"n": "07_storm",        "t": 0.50, "w": &"storm",  "r": 0.9, "f": 0.0, "d": 110.0, "p": 0.50},
-	{"n": "08_fog",          "t": 0.50, "w": &"fog",    "r": 0.0, "f": 0.6, "d": 110.0, "p": 0.50},
-	{"n": "09_far_ocean",    "t": 0.50, "w": &"clear",  "r": 0.0, "f": 0.0, "d": 220.0, "p": 0.85},
-	{"n": "10_horizon",      "t": 0.50, "w": &"clear",  "r": 0.0, "f": 0.0, "d": 220.0, "p": 0.12},
+	{"n": "02_noon_close",   "t": 0.50, "w": &"clear",  "r": 0.0, "f": 0.0, "d": 22.0,  "p": 0.45},
+	{"n": "03_critters",     "t": 0.50, "w": &"clear",  "r": 0.0, "f": 0.0, "d": 14.0,  "p": 0.30},
+	{"n": "04_wide",         "t": 0.50, "w": &"clear",  "r": 0.0, "f": 0.0, "d": 160.0, "p": 0.70},
 ]
 
 func _ready() -> void:

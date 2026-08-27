@@ -267,12 +267,34 @@ func _spawn_flora_for_chunk(coord: Vector2i, biome_map: PackedByteArray) -> void
 			_register_flora_motion(instance, entry, rng)
 			_register_flora_lifecycle(instance, entry, rng)
 
+			_apply_view_distance(instance)
 			add_child(instance)
 			instances.append(instance)
 
 	_chunk_flora[coord] = instances
 	SharedWorld.total_flora_count += instances.size()
 	SystemBus.flora_chunk_spawned.emit(coord, instances.size())
+
+
+## Fade a prop out past the configured view distance.
+##
+## Flora is one scene instance per plant, so a large load radius puts many
+## thousands of separately drawn objects in the scene at once. Culling the
+## distant ones is the difference between a playable frame and a slideshow,
+## and at these ranges they are a few pixels of silhouette inside the haze.
+func _apply_view_distance(node: Node3D) -> void:
+	if _config == null or _config.view_distance <= 0.0:
+		return
+	for child in node.find_children("*", "GeometryInstance3D", true, false):
+		var geo := child as GeometryInstance3D
+		geo.visibility_range_end = _config.view_distance
+		geo.visibility_range_end_margin = _config.view_fade
+		geo.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+	if node is GeometryInstance3D:
+		var self_geo := node as GeometryInstance3D
+		self_geo.visibility_range_end = _config.view_distance
+		self_geo.visibility_range_end_margin = _config.view_fade
+		self_geo.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
 
 
 func _sample_ground_support(coord: Vector2i, local_x: float, local_z: float, probe_radius: float,

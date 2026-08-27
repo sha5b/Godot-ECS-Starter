@@ -254,13 +254,23 @@ func _update_sky() -> void:
 		_environment.volumetric_fog_albedo = haze
 		var wet := maxf(local_rain, fog * 0.7)
 		_environment.fog_density = lerpf(_config.fog_density_clear, _config.fog_density_rain, pow(wet, 0.8))
-		_environment.fog_height = lerpf(24.0, SharedWorld.sea_level + _config.fog_valley_height_above_sea, fog)		# Height-band density. Godot's height fog is EXPONENTIAL in height:
+		# Height fog is an EVENT effect, not a baseline. The band used to sit
+		# at 24 m with a 0.015 floor density even in clear weather — and the
+		# terrain only spans about 0-35 m, so essentially the whole playable
+		# world sat inside the band. Looking across it from a low camera
+		# stacked enough of it to white the view out completely. Now the
+		# band only exists while a fog event is running; clear weather keeps
+		# nothing but the thin aerial haze below.
+		_environment.fog_height = lerpf(
+			SharedWorld.sea_level + 40.0,
+			SharedWorld.sea_level + _config.fog_valley_height_above_sea, fog)
+		# Height-band density. Godot's height fog is EXPONENTIAL in height:
 		# effective density = fog_density * exp(height_density * meters
 		# below fog_height). Usable values at this world's scale (terrain
 		# 0-35m, band at sea+4m) are ~0.02-0.09 — anything near 1.0
 		# multiplies valley density by e^(1.0*10m) = 22000x and whites out
 		# everything below the band.
-		_environment.fog_height_density = lerpf(0.015, 0.09, maxf(local_rain * 0.5, fog))
+		_environment.fog_height_density = lerpf(0.0, 0.09, maxf(local_rain * 0.5, fog))
 		_environment.volumetric_fog_density = lerpf(_config.volumetric_fog_density_clear, _config.volumetric_fog_density_fog, fog)
 
 

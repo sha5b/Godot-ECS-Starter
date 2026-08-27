@@ -5,8 +5,8 @@ extends Node
 
 var _samples: Array[float] = []
 var _elapsed := 0.0
-var _report_at := 5.0
-var _duration := 110.0
+var _report_at := 4.0
+var _duration := 60.0
 
 func _ready() -> void:
 	print("[QA] profiling main.tscn for %.0fs" % _duration)
@@ -15,7 +15,7 @@ func _process(delta: float) -> void:
 	_elapsed += delta
 	_samples.append(delta)
 	if _elapsed >= _report_at:
-		_report_at += 5.0
+		_report_at += 4.0
 		_dump()
 	if _elapsed >= _duration:
 		_dump()
