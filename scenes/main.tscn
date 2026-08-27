@@ -86,7 +86,8 @@ transform = Transform3D(0.99961203, 0.027851852, 0, -0.027851852, 0.99961203, 0,
 [node name="RtsCamera" type="Camera3D" parent="." unique_id=1820477511]
 script = ExtResource("20_cam")
 focus = Vector3(48, 0, 48)
-distance = 100.0
+distance = 12.0
+min_distance = 6.0
 max_distance = 220.0
 focus_bounds = 900.0
 current = true

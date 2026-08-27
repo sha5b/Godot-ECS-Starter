@@ -2,12 +2,12 @@ extends Camera3D
 
 ## RTS-style god camera: angled top-down view over the world.
 ##
-## Standard strategy controls:
-## - WASD / arrows: pan (camera-relative)
-## - Mouse wheel: smooth zoom toward the focus
-## - Hold RIGHT mouse + move: rotate (yaw) and tilt (pitch)
+## Controls (every axis has an invert toggle in the Inspector):
+## - WASD / arrows: pan
+## - Mouse wheel: UP pulls the camera out, DOWN moves it in
+## - Hold RIGHT mouse + move: orbit (left/right) and tilt (down = top-down)
 ## - Hold MIDDLE mouse + move: fast drag-pan
-## - Q / E: rotate without the mouse
+## - Q / E: orbit without the mouse
 ## - Shift: double pan speed
 ##
 ## Motion is smoothed (the camera eases toward its targets), and the camera
@@ -19,10 +19,30 @@ extends Camera3D
 @export var focus := Vector3(0, 0, 8)
 @export var yaw := 0.0
 @export var pitch := deg_to_rad(52.0)
-@export var distance := 42.0
+## Opening boom length. Close enough to read individual creatures on the
+## ground rather than surveying the whole island.
+@export var distance := 12.0
 
-@export var min_distance := 16.0
+## Low enough to get right down among the critters.
+@export var min_distance := 6.0
 @export var max_distance := 220.0
+
+@export_group("Invert Axes")
+## Every axis below is individually invertible. The defaults flip all four
+## relative to the original mapping — notably the wheel, which used to
+## push the camera AWAY on scroll-up.
+## Wheel up zooms in when false.
+@export var invert_zoom := false
+## W drives the view forward when false.
+@export var invert_pan_vertical := false
+## D drives the view right when false.
+@export var invert_pan_horizontal := false
+## Right-drag / Q-E orbit follows the mouse when false.
+@export var invert_rotate := false
+## Right-drag down tilts toward top-down when false.
+@export var invert_tilt := false
+## Middle-drag grabs the ground and drags it when false.
+@export var invert_drag_pan := false
 @export var pan_speed := 26.0
 @export var rotate_speed := 0.22
 @export var zoom_step := 1.18
@@ -60,12 +80,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion:
 		if event.button_mask & MOUSE_BUTTON_RIGHT:
 			# Hold-and-drag rotate — the standard RTS camera grip.
-			_target_yaw += event.relative.x * rotate_speed * 0.01
+			var yaw_dir := 1.0 if invert_rotate else -1.0
+			var tilt_dir := -1.0 if invert_tilt else 1.0
+			_target_yaw += event.relative.x * rotate_speed * 0.01 * yaw_dir
 			_target_pitch = clampf(
-				_target_pitch - event.relative.y * rotate_speed * 0.01,
+				_target_pitch + event.relative.y * rotate_speed * 0.01 * tilt_dir,
 				min_pitch, max_pitch)
 		elif event.button_mask & MOUSE_BUTTON_MIDDLE:
-			var drag := Vector2(event.relative.x, event.relative.y) * -0.014
+			var drag_dir := -1.0 if invert_drag_pan else 1.0
+			var drag := Vector2(event.relative.x, event.relative.y) * 0.014 * drag_dir
 			_pan_target(drag)
 
 
@@ -78,18 +101,22 @@ func _process(delta: float) -> void:
 		_zoom_accumulator = 0.0
 
 	var pan := Vector2.ZERO
+	var pan_x := -1.0 if invert_pan_horizontal else 1.0
+	var pan_y := -1.0 if invert_pan_vertical else 1.0
 	if Input.is_physical_key_pressed(KEY_D) or Input.is_physical_key_pressed(KEY_RIGHT):
-		pan.x += 1.0
+		pan.x -= pan_x
 	if Input.is_physical_key_pressed(KEY_A) or Input.is_physical_key_pressed(KEY_LEFT):
-		pan.x -= 1.0
+		pan.x += pan_x
 	if Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP):
-		pan.y += 1.0
+		pan.y -= pan_y
 	if Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN):
-		pan.y -= 1.0
+		pan.y += pan_y
+	# Q/E orbit matches the right-drag direction.
+	var key_yaw := 1.0 if invert_rotate else -1.0
 	if Input.is_physical_key_pressed(KEY_Q):
-		_target_yaw += rotate_speed * delta
+		_target_yaw -= rotate_speed * delta * key_yaw
 	if Input.is_physical_key_pressed(KEY_E):
-		_target_yaw -= rotate_speed * delta
+		_target_yaw += rotate_speed * delta * key_yaw
 	if pan != Vector2.ZERO:
 		if Input.is_physical_key_pressed(KEY_SHIFT):
 			pan *= 2.0

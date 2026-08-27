@@ -52,12 +52,13 @@ extends Node
 @export_group("Procedural Critters")
 ## Give ECS critters a CGenome: bodies are built procedurally from genome
 ## data (see docs/PROCEDURAL_CRITTER_BODIES.md) instead of the simple
-## capsule view. Off until the Body Lab output passes visual QA.
-@export var procedural_critters := false
+## capsule view. Bodies are distance-LOD'd by CritterView, so only near and
+## mid-tier critters carry a full rig.
+@export var procedural_critters := true
 
 ## Run BreedingSystem — crossover + mutation reproduction for genome-backed
 ## critters. Requires procedural_critters to produce carriers.
-@export var breeding_enabled := false
+@export var breeding_enabled := true
 
 ## How close critters must stand to breed, in world units.
 @export var breed_partner_radius := 6.0

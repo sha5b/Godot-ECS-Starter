@@ -44,6 +44,20 @@ var _rest: Dictionary = {}
 var _phase := 0.0
 var _time := 0.0
 
+## Optional ground query: func(x: float, z: float) -> float returning the
+## world surface height, or INF where nothing is loaded. When set, the legs
+## are IK-adapted to the terrain after the gait pose is evaluated.
+var ground_sampler := Callable()
+
+## Foot nodes and the leg segment lengths the IK solves against, captured
+## by the builder alongside the joints.
+var _feet: Array[Node3D] = []
+var _upper_len := 0.0
+var _lower_len := 0.0
+var _foot_contact := 0.0
+## How much the gait is lifting each leg this tick (0 = planted).
+var _leg_lift: Array[float] = []
+
 
 ## Called by CritterBodyBuilder right after construction. Also safe to call
 ## directly on a rebuilt body.
@@ -58,6 +72,10 @@ func setup(source_genome: CritterGenome, joints: Dictionary) -> void:
 	_head = joints.get("head", null) as Node3D
 	_wing_l = joints.get("wing_l", null) as Node3D
 	_wing_r = joints.get("wing_r", null) as Node3D
+	_feet = joints.get("feet", []) as Array[Node3D]
+	_upper_len = float(joints.get("upper_len", 0.0))
+	_lower_len = float(joints.get("lower_len", 0.0))
+	_foot_contact = float(joints.get("foot_contact", 0.0))
 
 	_capture_rest(_spine_root)
 	for seg in _spine:
@@ -103,6 +121,7 @@ func tick(delta: float, speed_ratio: float) -> void:
 	var wag: float = float(genome.genes[CritterGenome.GENE_TAIL_WAG]) * sr
 
 	# Legs: hip swings fore/aft, knee lifts during the swing half of the cycle.
+	_leg_lift.resize(_hips.size())
 	for i in _hips.size():
 		var hip := _hips[i]
 		var hip_rest := _rest.get(hip.get_instance_id(), {"rot": Vector3.ZERO}) as Dictionary
@@ -121,6 +140,7 @@ func tick(delta: float, speed_ratio: float) -> void:
 		# forward — the critter moonwalked. Negating puts the lift on the
 		# forward swing.
 		var raised := maxf(0.0, -sin(ph + _offsets[i] * TAU + 1.1))
+		_leg_lift[i] = raised
 		knee.rotation = Vector3(knee_rot.x + raised * lift, knee_rot.y, knee_rot.z)
 
 	# Spine: lateral undulation travels rearward; bounders also hop.
@@ -178,10 +198,69 @@ func tick(delta: float, speed_ratio: float) -> void:
 		var angle := sin(ph * 2.0) * flap
 		_wing_r.rotation = Vector3(rot.x, rot.y, rot.z - angle)
 
+	# Plant the feet on the actual ground before the surface is re-skinned.
+	if ground_sampler.is_valid():
+		_adapt_legs_to_ground()
+
 	# Re-skin the continuous torso so the body surface follows the joints —
 	# cheap when nothing moved, a tiny mesh rebuild while walking.
 	if _torso != null:
 		_torso.reskin_if_moved()
+
+
+## Terrain-adaptive legs: two-bone IK that puts each planted foot on the
+## surface under it.
+##
+## The gait alone produces one canned stride on a flat plane, so on a slope
+## the uphill feet sink into the hill and the downhill feet hang in the air.
+## Here each foot's own ground height is sampled and the leg is re-solved to
+## reach it — keeping whatever lift the gait asked for, so a swinging foot
+## still arcs over the ground instead of dragging along it.
+##
+## Needs the rig in the scene tree (it reads global transforms); silently
+## does nothing otherwise, which keeps headless builds working.
+func _adapt_legs_to_ground() -> void:
+	if _feet.size() != _hips.size() or _upper_len <= 0.0:
+		return
+	var reach := _upper_len + _lower_len
+	for i in _hips.size():
+		var hip := _hips[i]
+		var knee := _knees[i]
+		var foot := _feet[i]
+		if hip == null or knee == null or foot == null or not foot.is_inside_tree():
+			continue
+		var foot_world := foot.global_position
+		var ground: float = ground_sampler.call(foot_world.x, foot_world.z)
+		if not is_finite(ground):
+			continue
+		# Keep the gait's own lift above the terrain, not above the plane.
+		var lift_gain: float = _leg_lift[i] * _lower_len * 0.35
+		var target_y := ground + _foot_contact + lift_gain
+		var target := Vector3(foot_world.x, target_y, foot_world.z)
+
+		# Solve in the hip's parent frame: the hip pitches to aim at the
+		# target and the knee closes to match the remaining distance.
+		var parent := hip.get_parent() as Node3D
+		if parent == null:
+			continue
+		var local: Vector3 = parent.global_transform.affine_inverse() * target
+		local -= hip.position
+		var dist := clampf(local.length(),
+			absf(_upper_len - _lower_len) + 0.01, reach - 0.01)
+		if dist <= 0.001:
+			continue
+		# Law of cosines for the knee, then aim the whole leg at the target.
+		var cos_knee := clampf(
+			(_upper_len * _upper_len + _lower_len * _lower_len - dist * dist)
+			/ (2.0 * _upper_len * _lower_len), -1.0, 1.0)
+		var knee_bend := PI - acos(cos_knee)
+		var cos_hip := clampf(
+			(_upper_len * _upper_len + dist * dist - _lower_len * _lower_len)
+			/ (2.0 * _upper_len * dist), -1.0, 1.0)
+		# Leg hangs down -Y; measure the aim angle in the hip's YZ plane.
+		var aim := atan2(local.z, -local.y)
+		hip.rotation.x = aim - acos(cos_hip)
+		knee.rotation.x = knee_bend
 
 
 ## The torso skinner this gait re-skins (set by the builder; tests and

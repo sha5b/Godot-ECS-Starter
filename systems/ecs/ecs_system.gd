@@ -80,6 +80,9 @@ func _initialize() -> void:
 		breeding.max_population = _config.breed_max_population
 		breeding.mutation_rate = _config.critter_mutation_rate
 		scheduler.register(&"breeding", breeding.tick, EcsScheduler.Phase.SIM, 55)
+	# Right after movement: velocity integration is planar, so actors need
+	# re-seating on the surface before anything reads their position.
+	scheduler.register(&"grounding", _ground_agents, EcsScheduler.Phase.SIM, 25)
 	if _config.view_sync_enabled:
 		scheduler.register(&"view_sync", view_sync.tick, EcsScheduler.Phase.VIEW, 70)
 
@@ -344,6 +347,44 @@ func _make_campfire_view(position: Vector3) -> EntityView:
 	view.add_child(light)
 	add_child(view)
 	return view
+
+
+## Glue walking actors to the generated surface.
+##
+## MovementSystem integrates CVelocity, and the AI only ever writes planar
+## intent, so an actor keeps whatever Y it spawned with. As it wanders it
+## therefore holds that altitude across the terrain underneath — visibly
+## flying over the hills it walked away from and sinking into the valleys.
+## Re-seating every tick is what makes a critter look like it is ON the ground.
+##
+## Runs at the entity's own tier cadence, so distant actors are re-seated
+## less often, and skips actors over unloaded chunks (height 0 there would
+## drop them through the world).
+func _ground_agents(world: EcsWorld, _delta: float, frame: int) -> void:
+	if _ground_cache == null:
+		_ground_cache = world.query([&"CTransform", &"CAgent"])
+	for entity in world.frame_entities(_ground_cache, frame):
+		var transform := world.get_component(entity, &"CTransform") as CTransform
+		if transform == null:
+			continue
+		var height := _surface_height(transform.position.x, transform.position.z)
+		if height != INF:
+			transform.position.y = height
+
+
+var _ground_cache: EcsWorld.QueryCache = null
+
+
+## Authoritative carved-surface height, or INF where nothing is loaded.
+func _surface_height(wx: float, wz: float) -> float:
+	if _terrain_for_normals == null:
+		_terrain_for_normals = _find_system_by_type(
+			preload("res://systems/terrain/terrain_system.gd")) as BaseSystem
+	if _terrain_for_normals == null:
+		return INF
+	if not _terrain_for_normals.has_method("_sample_loaded_surface_height"):
+		return INF
+	return _terrain_for_normals._sample_loaded_surface_height(wx, wz)
 
 
 ## Terrain surface normal at a world position (UP when unavailable).

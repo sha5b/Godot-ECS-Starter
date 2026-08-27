@@ -51,6 +51,9 @@ func tick(world: EcsWorld, _delta: float, frame: int) -> void:
 ## Push genome and motion data into procedural critter views. Still one-way:
 ## the view reads simulation state, never writes it.
 func _sync_critter_view(world: EcsWorld, view: CritterView) -> void:
+	# Tier first: it decides whether a rig should exist at all, so pushing
+	# the genome afterwards will not build a body for a distant critter.
+	view.apply_detail(world.tier_of(view.entity))
 	var genome_comp := world.get_component(view.entity, &"CGenome") as CGenome
 	if genome_comp != null:
 		view.apply_genome(genome_comp.genome)

@@ -456,6 +456,9 @@ static func _build_legs(genome: CritterGenome, palette: Dictionary, spine_root: 
 	joints["feet"] = feet
 	joints["hip_meta"] = hip_meta
 	joints["foot_contact"] = foot_r * 0.55
+	# Bone lengths for CritterGait's terrain IK solver.
+	joints["upper_len"] = upper_len
+	joints["lower_len"] = lower_len
 
 
 # ── Stance ────────────────────────────────────────────────────────────────────
