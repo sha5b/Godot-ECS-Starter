@@ -113,6 +113,22 @@ func reskin() -> void:
 	if positions.size() < 2:
 		return
 
+	# ── Radius slope limit ───────────────────────────────────────────────
+	# A tube cannot widen faster than it advances without the surface
+	# turning back on itself. Short tails are the usual offender: a 2 cm
+	# tail tip meeting a 35 cm body over 9 cm of length is a 75-degree
+	# cone, and its rings overlap into inverted facets. Two sweeps clamp
+	# every step to roughly a 42-degree flare. They only ever REDUCE radii,
+	# so the result is a smooth taper into the tail rather than a step —
+	# which is also what real animals look like.
+	const MAX_SLOPE := 0.9
+	for i in range(1, radii.size()):
+		radii[i] = minf(radii[i],
+			radii[i - 1] + MAX_SLOPE * positions[i].distance_to(positions[i - 1]))
+	for i in range(radii.size() - 2, -1, -1):
+		radii[i] = minf(radii[i],
+			radii[i + 1] + MAX_SLOPE * positions[i].distance_to(positions[i + 1]))
+
 	# ── Sample the spline ────────────────────────────────────────────────
 	# Centripetal Catmull-Rom (alpha = 0.5). Control spacing inside one body
 	# ranges over roughly 10x, and the uniform-parameter form overshoots and
@@ -143,6 +159,17 @@ func reskin() -> void:
 	point_radii.append(radii[radii.size() - 1])
 	if points.size() < 2:
 		return
+
+	# ── Curvature limit ──────────────────────────────────────────────────
+	# A swept tube whose radius exceeds its centreline's radius of curvature
+	# MUST fold through itself on the inside of the turn — the rings there
+	# cross over and the quads between them come out inverted. Capping each
+	# ring at a fraction of the local bend radius trades a slight pinch on
+	# sharp turns for a surface that never self-intersects.
+	for i in range(1, points.size() - 1):
+		var limit := _curvature_radius(points[i - 1], points[i], points[i + 1])
+		if limit < INF:
+			point_radii[i] = minf(point_radii[i], limit * 0.8)
 
 	# ── Parallel-transport frames along the line ─────────────────────────
 	var verts := PackedVector3Array()
@@ -297,6 +324,19 @@ func _catmull_nonuniform_f(p0: float, p1: float, p2: float, p3: float,
 	var b1 := lerpf(a1, a2, (tt - t0) / (t2 - t0))
 	var b2 := lerpf(a2, a3, (tt - t1) / (t3 - t1))
 	return lerpf(b1, b2, (tt - t1) / (t2 - t1))
+
+
+## Radius of the circle through three consecutive centreline samples — the
+## local radius of curvature. INF when they are collinear (a straight run
+## imposes no limit on tube thickness).
+func _curvature_radius(a: Vector3, b: Vector3, c: Vector3) -> float:
+	var ab := b - a
+	var ac := c - a
+	var bc := c - b
+	var area2 := ab.cross(ac).length()
+	if area2 < 1e-9:
+		return INF
+	return (ab.length() * bc.length() * ac.length()) / (2.0 * area2)
 
 
 func _perpendicular(direction: Vector3) -> Vector3:

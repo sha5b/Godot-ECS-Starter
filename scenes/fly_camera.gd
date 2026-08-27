@@ -15,7 +15,7 @@ func _ready() -> void:
 	if is_inside_tree():
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_mouse_captured = true
-	SharedWorld.camera_world_pos = global_position
+	SharedWorld.publish_camera_focus(global_position)
 
 
 func _notification(what: int) -> void:
@@ -24,10 +24,10 @@ func _notification(what: int) -> void:
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		_mouse_captured = false
 		_velocity = Vector3.ZERO
-		SharedWorld.camera_world_pos = global_position
+		SharedWorld.publish_camera_focus(global_position)
 	elif what == NOTIFICATION_APPLICATION_FOCUS_IN:
 		_velocity = Vector3.ZERO
-		SharedWorld.camera_world_pos = global_position
+		SharedWorld.publish_camera_focus(global_position)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -73,4 +73,4 @@ func _process(delta: float) -> void:
 	position += _velocity * delta
 
 	# Update shared world camera position
-	SharedWorld.camera_world_pos = global_position
+	SharedWorld.publish_camera_focus(global_position)

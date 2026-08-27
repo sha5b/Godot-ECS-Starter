@@ -372,7 +372,7 @@ func _release_mouse() -> void:
 
 func _sync_shared_camera_state() -> void:
 	if is_instance_valid(_camera):
-		SharedWorld.camera_world_pos = _camera.global_position
+		SharedWorld.publish_camera_focus(_camera.global_position)
 
 
 func _ensure_input_actions() -> void:

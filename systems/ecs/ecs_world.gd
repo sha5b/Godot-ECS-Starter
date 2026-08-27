@@ -34,29 +34,62 @@ class Store:
 
 class QueryCache:
 	## Live entity list for one required-component signature, split by tier.
+	##
+	## `_slots` maps entity -> (tier << 40 | dense slot), which makes both
+	## membership tests and removals O(1). They used to be linear scans over
+	## the tier arrays, and because every component add tests membership in
+	## every cache, populating the world was quadratic: spawning 25k actors
+	## took 1.5 s and a full tier reassignment 221 ms.
 	var required: Array[StringName] = []
 	var key := ""
 	var tiers: Array[PackedInt64Array] = [
 		PackedInt64Array(), PackedInt64Array(),
 		PackedInt64Array(), PackedInt64Array(),
 	]
+	var _slots: Dictionary = {}
 
 	func count() -> int:
-		var total := 0
-		for t in tiers:
-			total += t.size()
-		return total
+		return _slots.size()
 
 	func _has(entity: int) -> bool:
-		for t in tiers:
-			if t.has(entity):
-				return true
-		return false
+		return _slots.has(entity)
+
+	func tier_of_member(entity: int) -> int:
+		return int(_slots[entity]) >> 40 if _slots.has(entity) else -1
+
+	func insert(entity: int, tier: int) -> void:
+		if _slots.has(entity):
+			return
+		_slots[entity] = (tier << 40) | tiers[tier].size()
+		tiers[tier].append(entity)
+
+	## Swap-remove, patching the moved entity's recorded slot.
+	func erase(entity: int) -> void:
+		if not _slots.has(entity):
+			return
+		var packed := int(_slots[entity])
+		var tier := packed >> 40
+		var slot := packed & 0xFFFFFFFFFF
+		var bucket := tiers[tier]
+		var last := bucket.size() - 1
+		if slot != last:
+			var moved := bucket[last]
+			bucket[slot] = moved
+			_slots[moved] = (tier << 40) | slot
+		bucket.resize(last)
+		tiers[tier] = bucket
+		_slots.erase(entity)
+
+	func clear_all() -> void:
+		_slots.clear()
+		for t in tiers.size():
+			tiers[t] = PackedInt64Array()
 
 
 # --- Entity storage ---
 var _generations := PackedInt32Array()
 var _free := PackedByteArray()  ## 1 = index is on the free list
+var _free_list := PackedInt32Array()  ## stack of recyclable indices
 var _free_count := 0
 var _entity_types: Array[Dictionary] = []  ## index -> {component_id: true}
 var _tier := PackedByteArray()
@@ -105,8 +138,9 @@ func despawn(entity: int) -> void:
 		_remove_from_store(_store(component_id), index)
 	_entity_types[index] = {}
 	for cache in _caches.values():
-		_remove_from_cache(cache, entity)
+		cache.erase(entity)
 	_free[index] = 1
+	_free_list.append(index)
 	_free_count += 1
 	_generations[index] += 1
 	_alive_count -= 1
@@ -248,9 +282,9 @@ func set_tier(entity: int, tier: int) -> void:
 		return
 	_tier[index] = tier
 	for cache in _caches.values():
-		if cache.tiers[old].has(entity):
-			_remove_from_cache(cache, entity)
-			cache.tiers[tier].append(entity)
+		if cache._has(entity):
+			cache.erase(entity)
+			cache.insert(entity, tier)
 
 
 ## Tier distance assignment from focus position, BotW-style A/B/C profiles.
@@ -312,26 +346,23 @@ func flush_commands() -> void:
 
 func _acquire_index() -> int:
 	var index: int
-	if _free_count == 0:
+	if _free_list.is_empty():
 		index = _generations.size()
 		_generations.append(0)
 		_entity_types.append({})
 		_tier.append(0)
 		_free.append(0)
 	else:
-		index = _find_free_index()
+		# Pop the free list. This used to scan every slot in the world for
+		# the first free one, so once chunk streaming started recycling
+		# entities every spawn cost O(entities).
+		index = _free_list[_free_list.size() - 1]
+		_free_list.resize(_free_list.size() - 1)
 		_entity_types[index] = {}
 		_free[index] = 0
 		_free_count -= 1
 	_alive_count += 1
 	return index
-
-
-func _find_free_index() -> int:
-	for i in _free.size():
-		if _free[i] == 1:
-			return i
-	return -1  # Unreachable when _free_count > 0.
 
 
 func _store(component_id: StringName) -> Store:
@@ -359,19 +390,11 @@ func _on_structure_changed(index: int, entity: int, added: bool, component_id: S
 	for cache in _caches.values():
 		if added:
 			if not cache._has(entity) and _entity_types[index].has_all(cache.required):
-				cache.tiers[_tier[index]].append(entity)
+				cache.insert(entity, _tier[index])
 		else:
 			if cache.required.has(component_id) and cache._has(entity) \
 					and not _entity_types[index].has_all(cache.required):
-				_remove_from_cache(cache, entity)
-
-
-func _remove_from_cache(cache: QueryCache, entity: int) -> void:
-	for t in TIER_COUNT:
-		var slot := cache.tiers[t].find(entity)
-		if slot >= 0:
-			cache.tiers[t].remove_at(slot)
-			return
+				cache.erase(entity)
 
 
 func _rebuild_cache(cache: QueryCache) -> void:
@@ -393,7 +416,7 @@ func _rebuild_cache(cache: QueryCache) -> void:
 	for e in candidate:
 		var index := e & 0xFFFFFFFF
 		if _entity_types[index].has_all(cache.required):
-			cache.tiers[_tier[index]].append(e)
+			cache.insert(e, _tier[index])
 
 
 func refresh_stats() -> void:

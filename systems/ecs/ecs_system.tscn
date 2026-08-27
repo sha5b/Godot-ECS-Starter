@@ -4,6 +4,7 @@
 [ext_resource type="Script" path="res://systems/ecs/ecs_config.gd" id="2_config"]
 
 [node name="EcsSystem" type="Node"]
+priority = 40
 script = ExtResource("1_ecs")
 
 [node name="EcsConfig" type="Node" parent="."]

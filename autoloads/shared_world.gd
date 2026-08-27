@@ -33,8 +33,21 @@ var fog_intensity: float = 0.0
 ## Current chunk coordinate the camera is in
 var camera_chunk_pos: Vector2i = Vector2i.ZERO
 
-## Camera world position (updated by camera or world script)
+## The world point the view is centred on — for an orbit camera this is
+## the FOCUS on the ground, not the camera body 100 m above it. Chunk
+## streaming, ECS processing tiers and AI threat range all key off it.
+##
+## Write it through publish_camera_focus() so there is exactly one owner
+## per frame. Four different places used to assign this directly (World
+## plus each camera controller) and whichever ran last won, so the ECS
+## focus flickered between the ground and the camera body. When the camera
+## body won, nothing was within tier_near_distance and EVERY actor dropped
+## to a coarse tier — tier 0 measured empty in a live capture, which makes
+## creatures advance in 4x and 12x delta jumps instead of moving smoothly.
 var camera_world_pos: Vector3 = Vector3.ZERO
+
+## Process frame on which a camera controller last published the focus.
+var _focus_frame: int = -1
 
 # --- Biome ---
 ## Biome index at the camera position
@@ -88,6 +101,18 @@ var river_paths: Dictionary = {}
 
 ## River cells per chunk: coord → Array[Dictionary] (written by TerrainSystem)
 var river_cells: Dictionary = {}
+
+
+## Publish the view focus. Camera controllers call this; World only fills
+## in from the raw camera transform when no controller has claimed it.
+func publish_camera_focus(focus: Vector3) -> void:
+	camera_world_pos = focus
+	_focus_frame = Engine.get_process_frames()
+
+
+## True while some camera controller is actively publishing the focus.
+func has_camera_focus_owner() -> bool:
+	return Engine.get_process_frames() - _focus_frame <= 1
 
 
 ## Convert a world position to chunk coordinates

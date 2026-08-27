@@ -25,7 +25,10 @@ func _process(delta: float) -> void:
 	var viewport := get_viewport()
 	if viewport:
 		var camera := viewport.get_camera_3d()
-		if camera:
+		# Fallback only. A camera controller that publishes its own focus
+		# owns the value; overwriting it here with the camera body's
+		# position is what used to break ECS tier assignment.
+		if camera and not SharedWorld.has_camera_focus_owner():
 			SharedWorld.camera_world_pos = camera.global_position
 
 	# Update camera chunk position from SharedWorld

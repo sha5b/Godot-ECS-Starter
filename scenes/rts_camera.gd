@@ -116,7 +116,7 @@ func _process(delta: float) -> void:
 		_current_distance = lerpf(_current_distance, wanted, k)
 	_apply(false)
 
-	SharedWorld.camera_world_pos = focus
+	SharedWorld.publish_camera_focus(focus)
 	SharedWorld.camera_chunk_pos = SharedWorld.world_to_chunk(focus)
 
 

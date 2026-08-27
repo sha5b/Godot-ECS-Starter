@@ -89,11 +89,18 @@ func tick(delta: float, speed_ratio: float) -> void:
 	_phase += delta * cycle * (0.35 + 1.15 * sr) * TAU
 	var ph := _phase
 
-	var stride: float = float(genome.genes[CritterGenome.GENE_STRIDE_AMP]) * (0.25 + 0.75 * sr)
-	var lift: float = float(genome.genes[CritterGenome.GENE_KNEE_LIFT]) * (0.25 + 0.75 * sr)
-	var wave: float = float(genome.genes[CritterGenome.GENE_SPINE_WAVE]) * (0.35 + 0.65 * sr)
+	# Every locomotion amplitude reaches zero at sr = 0, so a standing
+	# critter actually holds its rest pose. The old floors (25-50% of full
+	# amplitude at idle) left it walking on the spot with sliding feet —
+	# and, because a control joint always moved more than reskin's epsilon,
+	# they also forced a full torso mesh rebuild every frame for every
+	# critter, defeating the change-triggered re-skin entirely.
+	# Idle motion is the breathing/sway layer below, and nothing else.
+	var stride: float = float(genome.genes[CritterGenome.GENE_STRIDE_AMP]) * sr
+	var lift: float = float(genome.genes[CritterGenome.GENE_KNEE_LIFT]) * sr
+	var wave: float = float(genome.genes[CritterGenome.GENE_SPINE_WAVE]) * sr
 	var bob: float = float(genome.genes[CritterGenome.GENE_HEAD_BOB]) * sr
-	var wag: float = float(genome.genes[CritterGenome.GENE_TAIL_WAG]) * (0.5 + 0.5 * sr)
+	var wag: float = float(genome.genes[CritterGenome.GENE_TAIL_WAG]) * sr
 
 	# Legs: hip swings fore/aft, knee lifts during the swing half of the cycle.
 	for i in _hips.size():
@@ -106,7 +113,14 @@ func tick(delta: float, speed_ratio: float) -> void:
 		var knee := _knees[i]
 		var knee_rest := _rest.get(knee.get_instance_id(), {"rot": Vector3.ZERO}) as Dictionary
 		var knee_rot: Vector3 = knee_rest["rot"]
-		var raised := maxf(0.0, sin(ph + _offsets[i] * TAU + 1.1))
+		# Lift the foot during the SWING half of the cycle, not the power
+		# half. Positive hip rotation.x swings the leg's -Y axis toward -Z,
+		# i.e. backwards (forward is +Z), so the backward power stroke is
+		# sin(ph) > 0. Raising on +sin therefore picked the foot up exactly
+		# while it should have been pushing, and planted it while it swung
+		# forward — the critter moonwalked. Negating puts the lift on the
+		# forward swing.
+		var raised := maxf(0.0, -sin(ph + _offsets[i] * TAU + 1.1))
 		knee.rotation = Vector3(knee_rot.x + raised * lift, knee_rot.y, knee_rot.z)
 
 	# Spine: lateral undulation travels rearward; bounders also hop.
@@ -126,9 +140,13 @@ func tick(delta: float, speed_ratio: float) -> void:
 			root_pos.x,
 			root_pos.y + absf(sin(ph)) * hop_amp * sr,
 			root_pos.z)
-		# Idle breathing fades out as the critter speeds up.
-		var breathe := 1.0 + sin(_time * 1.6) * 0.02 * (1.0 - sr)
-		_spine_root.scale = Vector3(breathe, breathe, 1.0 / maxf(breathe, 0.001))
+		# Idle breathing fades out as the critter speeds up. It swells the
+		# torso surface only — scaling the spine root instead pushed a
+		# non-uniform scale down the whole rig, stretching every leg, foot
+		# and head part and shearing the rotated ones.
+		if _torso != null and _torso.mesh_instance != null:
+			var breathe := 1.0 + sin(_time * 1.6) * 0.02 * (1.0 - sr)
+			_torso.mesh_instance.scale = Vector3(breathe, breathe, 1.0)
 
 	# Head bobs at twice the stride frequency.
 	if _head != null:

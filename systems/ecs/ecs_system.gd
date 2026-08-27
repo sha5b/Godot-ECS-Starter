@@ -63,7 +63,9 @@ func _initialize() -> void:
 	utility_ai.sensor_range = _config.ai_sensor_range
 	utility_ai.threat_range = _config.ai_threat_range
 
-	scheduler.register(&"tiering", tiers.tick, EcsScheduler.Phase.EARLY, 10)
+	# The config flag was declared but never consulted — tiering always ran.
+	if _config.tiering_enabled:
+		scheduler.register(&"tiering", tiers.tick, EcsScheduler.Phase.EARLY, 10)
 	if _config.movement_enabled:
 		scheduler.register(&"movement", movement.tick, EcsScheduler.Phase.SIM, 20)
 	if _config.ai_enabled:

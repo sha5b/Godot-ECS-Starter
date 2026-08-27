@@ -65,6 +65,8 @@ static func build(genome: CritterGenome) -> Node3D:
 	root.add_child(spine_root)
 	_build_head(genome, palette, spine_root, joints)
 	_build_legs(genome, palette, spine_root, joints)
+	_level_feet(spine_root, joints)
+	_solve_stance(spine_root, joints)
 	_build_tail(genome, spine_root, joints)
 	if genome.has_wings():
 		_build_wings(genome, palette, spine_root, joints)
@@ -121,29 +123,32 @@ static func _build_spine(genome: CritterGenome, joints: Dictionary) -> Node3D:
 
 	var spine_root := Node3D.new()
 	spine_root.name = "SpineRoot"
-	# Stance: solve the leg chain exactly so the feet REST on the ground
-	# plane. A stance below 1 crouches by bending the knee further; legs
-	# never stretch past the genome's rest bend, so feet can't float or
-	# sink no matter what mutation produced.
+	# Stance: pick how deep the knee sits. A stance below full extension
+	# crouches by bending the knee further; legs never stretch past the
+	# genome's rest bend. The body HEIGHT that puts the feet on the ground
+	# is solved later, in _solve_stance, from the built rig.
 	if genome.leg_pairs() > 0:
 		var leg_total: float = float(genome.genes[CritterGenome.GENE_LEG_LENGTH]) * UNIT_LEG
 		var upper_len := leg_total * 0.55
 		var lower_len := leg_total * 0.5
 		var bend: float = float(genome.genes[CritterGenome.GENE_KNEE_BEND])
 		var splay: float = float(genome.genes[CritterGenome.GENE_STANCE_SPLAY])
-		var foot_r: float = float(genome.genes[CritterGenome.GENE_FOOT_SIZE]) * UNIT_FOOT
 		var reach_full := (upper_len + lower_len * cos(bend)) * cos(splay)
-		var stance: float = minf(float(genome.genes[CritterGenome.GENE_STANCE_HEIGHT]), 1.0)
+		# stance_height ranges 0.7..1.5. Clamping it at 1.0 left 62% of the
+		# gene inert — a leg cannot reach past full extension, so every
+		# value above 1.0 produced an identical body and mutation in that
+		# band was silent. Remap the whole range onto a usable crouch band
+		# instead, so the gene is expressive (and selectable) end to end.
+		var stance_gene: float = float(genome.genes[CritterGenome.GENE_STANCE_HEIGHT])
+		var stance := lerpf(0.55, 1.0,
+			clampf(inverse_lerp(0.7, 1.5, stance_gene), 0.0, 1.0))
 		var desired := reach_full * stance
 		var cos_eff: float = (desired / maxf(cos(splay), 0.001) - upper_len) / maxf(lower_len, 0.001)
 		var bend_eff := bend
 		if cos_eff > -1.0 and cos_eff < 1.0:
 			bend_eff = maxf(bend, acos(cos_eff))
-		var reach := (upper_len + lower_len * cos(bend_eff)) * cos(splay)
 		joints["knee_bend_effective"] = bend_eff
-		# Hips sit seg radius * 0.1 below the spine node; the squashed foot
-		# sphere's half-height is the contact patch.
-		spine_root.position.y = reach + foot_r * 0.55 + girth_r * 0.1
+		spine_root.position.y = 0.0
 	else:
 		spine_root.position.y = girth_r * 0.9
 
@@ -272,9 +277,9 @@ static func _build_head(genome: CritterGenome, palette: Dictionary, spine_root: 
 	# control rides the head at (0, 0.2, 0.45) * skull_r with tube radius
 	# skull_r; nesting each eye sphere ~45% into that surface keeps it
 	# visible and attached for every gene combination.
+	var skull_axis := SKULL_CONTROL * skull_r
 	var eye_r: float = float(genome.genes[CritterGenome.GENE_EYE_SIZE])
 	var eye_count := genome.eye_count()
-	var skull_axis := Vector3(0.0, skull_r * 0.2, skull_r * 0.45)
 	for side in [-1.0, 1.0]:
 		var row := 0
 		while row * 2 < eye_count:
@@ -302,7 +307,9 @@ static func _build_head(genome: CritterGenome, palette: Dictionary, spine_root: 
 			ear_mesh.height = ear_len
 			ear.mesh = ear_mesh
 			ear.material_override = palette["base"]
-			ear.position = Vector3(side * skull_r * 0.55, skull_r * 0.8, -skull_r * 0.15)
+			# Anchored to the skull control, like the eyes — offsets measured
+			# from the head ORIGIN leave the ears floating behind the face.
+			ear.position = skull_axis + Vector3(side * 0.55, 0.72, -0.15) * skull_r
 			ear.rotation.z = -side * (0.35 + ear_angle)
 			head.add_child(ear)
 
@@ -318,7 +325,7 @@ static func _build_head(genome: CritterGenome, palette: Dictionary, spine_root: 
 			horn_mesh.height = horn_len
 			horn.mesh = horn_mesh
 			horn.material_override = palette["accent"]
-			horn.position = Vector3(side * skull_r * 0.35, skull_r * 0.85, -skull_r * 0.25)
+			horn.position = skull_axis + Vector3(side * 0.35, 0.78, -0.25) * skull_r
 			horn.rotation.z = -side * 0.45
 			head.add_child(horn)
 
@@ -339,7 +346,12 @@ static func _limb_zone_segment(t: float, count: int) -> int:
 	# whenever the body is long enough to afford it.
 	if count >= 4:
 		return clampi(idx, 1, count - 2)
-	return clampi(idx, 0, count - 1)
+	# Short bodies have no spare interior segment, and the old fallback
+	# handed the front pair the HEAD-bearing segment on every 3-segment
+	# body (the runner, pouncer and glider archetypes) — forelimbs growing
+	# out of the skull. Give up the tail-end clearance instead: hindlimbs
+	# at the tail base is ordinary tetrapod anatomy.
+	return clampi(idx, 0, maxi(count - 2, 0))
 
 
 static func _build_legs(genome: CritterGenome, palette: Dictionary, spine_root: Node3D, joints: Dictionary) -> void:
@@ -347,7 +359,9 @@ static func _build_legs(genome: CritterGenome, palette: Dictionary, spine_root: 
 	if pairs <= 0:
 		joints["hips"] = [] as Array[Node3D]
 		joints["knees"] = [] as Array[Node3D]
+		joints["feet"] = [] as Array[Node3D]
 		joints["hip_meta"] = [] as Array[Dictionary]
+		joints["foot_contact"] = 0.0
 		return
 	var segments: Array[Node3D] = joints["spine"]
 	var radii: Array[float] = joints["spine_radii"]
@@ -366,6 +380,7 @@ static func _build_legs(genome: CritterGenome, palette: Dictionary, spine_root: 
 
 	var hips: Array[Node3D] = []
 	var knees: Array[Node3D] = []
+	var feet: Array[Node3D] = []
 	var hip_meta: Array[Dictionary] = []
 	# Order [FL, FR, RL, RR] — CritterGait's phase table expects this.
 	# A single pair rides mid-body (under the center of mass).
@@ -433,11 +448,86 @@ static func _build_legs(genome: CritterGenome, palette: Dictionary, spine_root: 
 
 		hips.append(hip)
 		knees.append(knee)
+		feet.append(foot)
 		hip_meta.append({"pair": int(slot[1]), "side": int(side), "tag": tag})
 
 	joints["hips"] = hips
 	joints["knees"] = knees
+	joints["feet"] = feet
 	joints["hip_meta"] = hip_meta
+	joints["foot_contact"] = foot_r * 0.55
+
+
+# ── Stance ────────────────────────────────────────────────────────────────────
+
+## Bend each knee until every foot reaches the same ground line.
+##
+## The spine arch rotates each segment, so hips mounted on different
+## segments sit at different heights and a single shared knee angle leaves
+## the front and rear pairs up to 10 cm out of level — the body visibly
+## tilts. Legs may only bend MORE than their rest bend (crouching), never
+## stretch past it, so level to the HIGHEST foot and bend the rest up to
+## meet it. Solved by bisection against the real rig rather than a formula,
+## which keeps it correct for any splay/arch/taper combination.
+static func _level_feet(spine_root: Node3D, joints: Dictionary) -> void:
+	var knees: Array[Node3D] = joints.get("knees", [])
+	var feet: Array[Node3D] = joints.get("feet", [])
+	if knees.size() < 2 or knees.size() != feet.size():
+		return
+	var target := -INF
+	for foot in feet:
+		target = maxf(target, _position_in_space(foot, spine_root).y)
+	for i in knees.size():
+		var knee := knees[i]
+		if _position_in_space(feet[i], spine_root).y >= target - 1e-5:
+			continue
+		var lo := knee.rotation.x
+		var hi := lo + PI * 0.6
+		for _iter in 28:
+			var mid := (lo + hi) * 0.5
+			knee.rotation.x = mid
+			if _position_in_space(feet[i], spine_root).y < target:
+				lo = mid
+			else:
+				hi = mid
+		knee.rotation.x = hi
+
+
+## Drop the body so the LOWEST foot rests exactly on y = 0.
+##
+## This has to measure the built rig rather than predict it. The spine arch
+## rotates every segment, so hips mounted on different segments sit at
+## different heights and no single closed-form estimate lands all four feet
+## on the ground — the old one used the untapered girth where the hips use
+## the tapered segment radius, and ignored the foot's z-offset inside the
+## knee frame (which drops it by 0.02 * sin(bend)). The result was feet up
+## to 10 cm underground and front/rear pairs 10 cm out of level.
+static func _solve_stance(spine_root: Node3D, joints: Dictionary) -> void:
+	var feet: Array[Node3D] = joints.get("feet", [])
+	if feet.is_empty():
+		return
+	var contact: float = float(joints.get("foot_contact", 0.0))
+	var lowest := INF
+	for foot in feet:
+		var local := _position_in_space(foot, spine_root)
+		lowest = minf(lowest, local.y - contact)
+	if lowest < INF:
+		spine_root.position.y = -lowest
+
+
+## A node's position in `space`'s local coordinates, composed from local
+## transforms only so it works before the body is in the scene tree.
+## Ancestor-first ordering — see CritterTorso._control_position.
+static func _position_in_space(node: Node3D, space: Node3D) -> Vector3:
+	var xform := Transform3D()
+	var chain: Array[Node3D] = []
+	var cur := node
+	while cur != null and cur != space:
+		chain.append(cur)
+		cur = cur.get_parent() as Node3D
+	for link in chain:
+		xform = link.transform * xform
+	return xform.origin
 
 
 # ── Tail & wings ──────────────────────────────────────────────────────────────

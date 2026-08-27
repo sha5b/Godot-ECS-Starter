@@ -18,7 +18,7 @@ func bind(entity: int, node: Node) -> void:
 		_bindings.append(weakref(node))
 
 
-func tick(world: EcsWorld, _delta: float, _frame: int) -> void:
+func tick(world: EcsWorld, _delta: float, frame: int) -> void:
 	var alive: Array[WeakRef] = []
 	for ref in _bindings:
 		var view := ref.get_ref() as EntityView
@@ -28,6 +28,14 @@ func tick(world: EcsWorld, _delta: float, _frame: int) -> void:
 			view.queue_free()
 			continue
 		alive.append(ref)
+		# Mirror at the entity's processing cadence, not unconditionally.
+		# Pushing a transform into the scene tree for every bound view every
+		# frame ignored tiering entirely, so dormant actors hundreds of
+		# metres away still cost a global_position write (and the transform
+		# propagation it triggers) 60 times a second.
+		var cadence := world.TIER_CADENCE[world.tier_of(view.entity)]
+		if cadence == 0 or (frame + (view.entity & 0xFFFFFFFF)) % cadence != 0:
+			continue
 		var transform := world.get_component(view.entity, &"CTransform") as CTransform
 		if transform != null:
 			view.global_position = transform.position
