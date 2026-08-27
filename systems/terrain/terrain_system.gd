@@ -234,6 +234,13 @@ func _generate_chunk(coord: Vector2i) -> void:
 	var res := _config.chunk_resolution
 	var border_save := _save_border_heights(heightmap, res)
 
+	# Rivers MUST be traced on world-consistent heights: erosion is
+	# chunk-local, so tracing on the eroded map makes neighbors derive
+	# different sources, paths, and carved channels — visible as straight
+	# cuts along chunk borders. The pristine map equals the world sampler,
+	# so every chunk traces identical paths.
+	var pristine_hm := heightmap.duplicate()
+
 	if _config.erosion_iterations > 0:
 		heightmap = _apply_hydraulic_erosion(heightmap)
 	if _config.thermal_erosion_enabled:
@@ -241,19 +248,21 @@ func _generate_chunk(coord: Vector2i) -> void:
 	if _config.walkable_enforcement > 0.0:
 		heightmap = _apply_walkability_enforcement(heightmap)
 
-	# Restore pristine border heights so chunk edges always match
-	_restore_border_heights(heightmap, border_save, res)
-
-	# Step 1b: Trace river paths on the heightmap (before density field)
+	# Step 1b: Trace rivers on the pristine map, carve beds in the eroded
+	# map, then blend borders back to pristine. The final restore AFTER bed
+	# erosion is what keeps river crossings seam-safe.
 	var river_cells_for_chunk: Array = []
 	var render_paths_for_chunk: Array = []
 	if _config.rivers_enabled:
-		river_cells_for_chunk = _trace_rivers_on_heightmap(coord, heightmap)
+		river_cells_for_chunk = _trace_rivers_on_heightmap(coord, pristine_hm)
 		render_paths_for_chunk = SharedWorld.river_paths.get(coord, [])
 		_apply_riverbed_erosion_to_heightmap(heightmap, river_cells_for_chunk,
 			render_paths_for_chunk, res, float(coord.x) * GameConfig.chunk_size,
 			float(coord.y) * GameConfig.chunk_size, GameConfig.chunk_size / float(res - 1), _config.sea_level)
 		SharedWorld.river_cells[coord] = river_cells_for_chunk
+
+	# Restore pristine border heights so chunk edges always match
+	_restore_border_heights(heightmap, border_save, res)
 
 	# Step 2: Build 3D density field from heightmap + cave noise + river carving
 	var res_xz := _config.chunk_resolution
@@ -476,8 +485,11 @@ func _apply_ocean_floor(h: float, wx: float, wz: float, sx: float, sz: float, se
 # ── Border height preservation (chunk alignment) ────────────────────────────
 
 func _save_border_heights(heightmap: PackedFloat32Array, res: int) -> Dictionary:
+	# Save the whole blend band, not just the outer ring — the restore
+	# blends eroded heights back toward these pristine values so chunks
+	# meet smoothly instead of stepping at the erosion boundary.
 	var saved := {}
-	var border := 2
+	var border := maxi(_config.border_blend_cells, 2)
 	for z in res:
 		for x in res:
 			if x < border or x >= res - border or z < border or z >= res - border:
@@ -485,9 +497,21 @@ func _save_border_heights(heightmap: PackedFloat32Array, res: int) -> Dictionary
 	return saved
 
 
-func _restore_border_heights(heightmap: PackedFloat32Array, saved: Dictionary, _res: int) -> void:
+func _restore_border_heights(heightmap: PackedFloat32Array, saved: Dictionary, res: int) -> void:
+	# Smooth blend toward pristine border values: full pristine at the seam
+	# (exact neighbor match), untouched erosion past the blend band.
+	var blend := float(maxi(_config.border_blend_cells, 2))
 	for idx: int in saved:
-		heightmap[idx] = saved[idx]
+		var x := idx % res
+		var z := idx / res
+		var d := float(mini(mini(x, z), mini(res - 1 - x, res - 1 - z)))
+		if d <= 1.0:
+			heightmap[idx] = saved[idx]
+			continue
+		var w := 1.0 - (d - 1.0) / maxf(blend - 1.0, 1.0)
+		w = clampf(w, 0.0, 1.0)
+		w = w * w * (3.0 - 2.0 * w)  # smoothstep
+		heightmap[idx] = lerpf(heightmap[idx], saved[idx], w)
 
 
 # ── Hydraulic erosion ─────────────────────────────────────────────────────────
@@ -789,11 +813,20 @@ func _select_cave_entrance_candidate(region: Dictionary, heightmap: PackedFloat3
 	var best_score := -INF
 	var best_candidate := {}
 	var preferred_slope := _config.cave_entrance_preferred_slope
+	# Cave regions are flood-filled per chunk, so a cave crossing a border
+	# becomes two partial regions and each side picks its own entrance.
+	# Funnel carves near the seam would exist on one side only and tear the
+	# surface open along the chunk border — keep entrances (and their funnels)
+	# safely inside the chunk.
+	var entrance_margin := ceili(_config.cave_entrance_radius / maxf(step_xz, 0.1)) + 2
 	var cells: Array[Vector3i] = region.get("cells", [])
 	for cell in cells:
 		var gx := cell.x
 		var gy := cell.y
 		var gz := cell.z
+		if gx < entrance_margin or gz < entrance_margin \
+				or gx >= res_xz - entrance_margin or gz >= res_xz - entrance_margin:
+			continue
 		var surface_h := heightmap[gz * res_xz + gx]
 		var cave_y := min_y + float(gy) * step_y
 		var depth_below := surface_h - cave_y
@@ -856,6 +889,9 @@ func _find_cave_side_outlet(heightmap: PackedFloat32Array, res_xz: int,
 	var clearance_target := floor_clearance * 1.1
 	var max_clearance := maxf(_config.cave_entrance_radius * 2.6, floor_clearance * 2.4)
 	var search_cells := maxi(int(ceili(maxf(_config.cave_entrance_radius * 2.2, step_xz * 3.0) / maxf(step_xz, 0.001))), 2)
+	# Same seam-safety margin as candidate selection: a mouth near the
+	# chunk edge would let its funnel carve the shared border column.
+	var outlet_margin := ceili(_config.cave_entrance_radius / maxf(step_xz, 0.1)) + 2
 	var directions := [
 		Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
 		Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1),
@@ -864,7 +900,8 @@ func _find_cave_side_outlet(heightmap: PackedFloat32Array, res_xz: int,
 		for dist in range(1, search_cells + 1):
 			var mouth_gx: int = gx + dir.x * dist
 			var mouth_gz: int = gz + dir.y * dist
-			if mouth_gx <= 0 or mouth_gx >= res_xz - 1 or mouth_gz <= 0 or mouth_gz >= res_xz - 1:
+			if mouth_gx < outlet_margin or mouth_gx >= res_xz - outlet_margin \
+					or mouth_gz < outlet_margin or mouth_gz >= res_xz - outlet_margin:
 				break
 			var surface_h := heightmap[mouth_gz * res_xz + mouth_gx]
 			var clearance := surface_h - cave_y

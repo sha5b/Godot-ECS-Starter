@@ -37,6 +37,7 @@ script = ExtResource("2_director")
 
 [node name="EcsConfig" parent="EcsSystem" index="0"]
 tier_near_distance = 25.0
+populate_world = false
 tier_mid_distance = 40.0
 tier_far_distance = 70.0
 movement_bounds_radius = 55.0

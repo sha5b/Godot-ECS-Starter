@@ -8,6 +8,12 @@ extends Node
 ## Resolution of the heightmap grid per chunk (e.g. 32 = 32x32 vertices)
 @export var chunk_resolution: int = 33
 
+## Width (in vertices) of the chunk-border blend zone. Erosion is chunk-local,
+## so heights are blended back to pristine values near borders: exact match
+## at the seam, smooth transition into the eroded interior. Without this,
+## hard-restored border rings meet eroded interiors in visible cliff cuts.
+@export_range(2, 12) var border_blend_cells: int = 6
+
 @export_group("Height")
 ## Vertical scale multiplier for terrain height
 @export var height_scale: float = 35.0

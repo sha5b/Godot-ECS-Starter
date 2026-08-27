@@ -13,7 +13,7 @@ var _config
 var _biome_system: BiomeSystem
 var _terrain_system: BaseSystem
 var _foliage_material: ShaderMaterial
-var _foliage_mesh: QuadMesh
+var _foliage_mesh: ArrayMesh
 var _noise_texture: NoiseTexture2D
 var _wind_texture: NoiseTexture2D
 var _shape_texture: Texture2D
@@ -21,6 +21,14 @@ var _shape_atlas: Texture2D
 var _color_gradient: Texture2D
 var _chunk_foliage: Dictionary = {}
 var _pending_chunk_biomes: Dictionary = {}
+## Chemistry reactivity per chunk: spatial buckets (cell -> instance
+## indices) and the original instance colors to restore after events.
+const CHEMISTRY_CELL := 4.0
+const CHEMISTRY_RADIUS := 2.3
+var _chunk_chem_buckets: Dictionary = {}
+var _chunk_chem_colors: Dictionary = {}
+## CPU-side instance origins per chunk (see _build_chunk_foliage).
+var _chunk_instance_origins: Dictionary = {}
 var _sea_level: float = 0.0
 var _height_scale: float = 20.0
 var _terrain_found: bool = false
@@ -41,6 +49,7 @@ func _register_signals() -> void:
 	SystemBus.biome_chunk_ready.connect(_on_biome_chunk_ready)
 	SystemBus.terrain_chunk_ready.connect(_on_terrain_chunk_ready)
 	SystemBus.chunk_unload_requested.connect(_on_chunk_unload_requested)
+	SystemBus.ecs_event.connect(_on_ecs_event)
 
 func system_process(_delta: float) -> void:
 	if not active or not _foliage_material:
@@ -93,15 +102,50 @@ func _setup_material() -> void:
 	if _color_gradient:
 		_foliage_material.set_shader_parameter("color_gradient", _color_gradient)
 	_foliage_material.set_shader_parameter("use_atlas", _use_atlas)
-	_foliage_material.set_shader_parameter("billboard", true)
+	# Crossed quads are camera-independent; billboarding would collapse
+	# them into slivers from the RTS top-down view.
+	_foliage_material.set_shader_parameter("billboard", false)
 	_foliage_material.set_shader_parameter("noise_texture", _noise_texture)
 	_foliage_material.set_shader_parameter("wind_texture", _wind_texture)
 	_foliage_material.set_shader_parameter("wind_velocity", Vector2(0.15, 0.0))
 
 func _setup_mesh() -> void:
-	_foliage_mesh = QuadMesh.new()
-	_foliage_mesh.size = Vector2(_config.quad_width, _config.quad_height)
-	_foliage_mesh.center_offset = Vector3(0.0, _config.quad_height * 0.5, 0.0)
+	_foliage_mesh = _build_cross_quad_mesh(_config.quad_width, _config.quad_height)
+
+
+## Three vertical quads crossed at 60 degrees. Camera-facing billboards
+## collapse into thin slivers when viewed from the RTS god camera's steep
+## top-down angle; crossed quads stay full from every view direction.
+## UV.y runs 0 at the base to 1 at the top, matching the shader's wind
+## bend and brightness gradients.
+func _build_cross_quad_mesh(width: float, height: float) -> ArrayMesh:
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	var verts := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var indices := PackedInt32Array()
+	var half_w := width * 0.5
+	for blade in 3:
+		var angle := TAU * float(blade) / 3.0
+		var dir := Vector3(cos(angle), 0.0, sin(angle)) * half_w
+		var base_index := verts.size()
+		verts.append(Vector3(-dir.x, 0.0, -dir.z))
+		verts.append(Vector3(dir.x, 0.0, dir.z))
+		verts.append(Vector3(dir.x, height, dir.z))
+		verts.append(Vector3(-dir.x, height, -dir.z))
+		uvs.append(Vector2(0.0, 0.0))
+		uvs.append(Vector2(1.0, 0.0))
+		uvs.append(Vector2(1.0, 1.0))
+		uvs.append(Vector2(0.0, 1.0))
+		for tri in [[0, 1, 2], [0, 2, 3]]:
+			for corner in tri:
+				indices.append(base_index + corner)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
 
 func _validate_setup() -> void:
 	if not _shape_texture:
@@ -170,11 +214,18 @@ func _build_chunk_foliage(coord: Vector2i, biome_map: PackedByteArray) -> bool:
 	multimesh.use_custom_data = true
 	multimesh.instance_count = instances.size()
 	multimesh.visible_instance_count = instances.size()
+	# MultiMesh transforms cannot be read back from the rendering server —
+	# keep a CPU-side copy of instance origins for chemistry buckets and
+	# QA checks.
+	var origins := PackedVector3Array()
+	origins.resize(instances.size())
 	for i in range(instances.size()):
 		var instance_data: Dictionary = instances[i]
 		multimesh.set_instance_transform(i, instance_data["transform"])
 		multimesh.set_instance_color(i, instance_data["color"])
 		multimesh.set_instance_custom_data(i, instance_data["custom_data"])
+		origins[i] = (instance_data["transform"] as Transform3D).origin
+	_chunk_instance_origins[coord] = origins
 	multimesh.custom_aabb = AABB(Vector3(-cs * 0.5, -1.0, -cs * 0.5), Vector3(cs, maxf(_config.quad_height * _config.scale_max + 3.0, 4.0), cs))
 	var foliage_instance := MultiMeshInstance3D.new()
 	foliage_instance.name = "Foliage_%d_%d" % [coord.x, coord.y]
@@ -435,7 +486,92 @@ func _get_biome_dryness(biome_name: StringName) -> float:
 			return 0.08
 	return 0.22
 
+## React to ECS chemistry events by recoloring nearby foliage instances —
+## fire visibly spreads and chars the rendered meadow, rain-doused and
+## thawed patches restore their original tint.
+func _on_ecs_event(channel: StringName, payload: Dictionary) -> void:
+	if _config != null and not _config.get("chemistry_reactive"):
+		return
+	var position: Vector3 = payload.get("position", Vector3.ZERO)
+	if position == Vector3.ZERO and not payload.has("position"):
+		return
+	var coord := SharedWorld.world_to_chunk(position)
+	var foliage := _chunk_foliage.get(coord) as MultiMeshInstance3D
+	if foliage == null:
+		return
+	var color := Color.WHITE
+	var restore := false
+	match channel:
+		ChemistryDefs.CHANNEL_IGNITED:
+			color = Color(1.0, 0.42, 0.1)
+		ChemistryDefs.CHANNEL_BURNED_OUT:
+			color = Color(0.07, 0.06, 0.05)
+		ChemistryDefs.CHANNEL_EXTINGUISHED:
+			restore = true  # put the original tint back
+		ChemistryDefs.CHANNEL_FROZEN:
+			if bool(payload.get("frozen", true)):
+				color = Color(0.66, 0.85, 1.0)
+			else:
+				restore = true
+		_:
+			return
+	_react_cluster(foliage, coord, position, color, restore)
+
+
+func _react_cluster(foliage: MultiMeshInstance3D, coord: Vector2i,
+		world_position: Vector3, color: Color, restore := false) -> void:
+	var multimesh := foliage.multimesh
+	if multimesh == null:
+		return
+	if not _chunk_chem_buckets.has(coord):
+		if not _build_chem_buckets(foliage, coord):
+			return
+	var buckets: Dictionary = _chunk_chem_buckets[coord]
+	var originals: PackedColorArray = _chunk_chem_colors[coord]
+
+	# Event positions are world-space; instances are chunk-local.
+	var local := world_position - foliage.global_position
+	var center := Vector2i(floori(local.x / CHEMISTRY_CELL), floori(local.z / CHEMISTRY_CELL))
+	var radius_sq := CHEMISTRY_RADIUS * CHEMISTRY_RADIUS
+	for cx in range(center.x - 1, center.x + 2):
+		for cz in range(center.y - 1, center.y + 2):
+			var indices: PackedInt32Array = buckets.get(Vector2i(cx, cz), PackedInt32Array())
+			for index in indices:
+				var origin := multimesh.get_instance_transform(index).origin
+				var dx := origin.x - local.x
+				var dz := origin.z - local.z
+				if dx * dx + dz * dz > radius_sq:
+					continue
+				multimesh.set_instance_color(index,
+					originals[index] if restore else color)
+
+
+## Bucket instances into coarse cells once per chunk so events recolor a
+## handful of instances instead of scanning thousands.
+func _build_chem_buckets(foliage: MultiMeshInstance3D, coord: Vector2i) -> bool:
+	var multimesh := foliage.multimesh
+	var origins: PackedVector3Array = _chunk_instance_origins.get(coord, PackedVector3Array())
+	if multimesh == null or origins.is_empty():
+		return false
+	var buckets: Dictionary = {}
+	var originals := PackedColorArray()
+	var count := mini(multimesh.instance_count, origins.size())
+	for i in count:
+		var origin := origins[i]
+		var cell := Vector2i(floori(origin.x / CHEMISTRY_CELL), floori(origin.z / CHEMISTRY_CELL))
+		if not buckets.has(cell):
+			buckets[cell] = PackedInt32Array()
+		buckets[cell].append(i)
+		originals.append(multimesh.get_instance_color(i))
+	_chunk_chem_buckets[coord] = buckets
+	_chunk_chem_colors[coord] = originals
+	return true
+
+
 func _clear_chunk_foliage(coord: Vector2i) -> void:
+	_chunk_chem_buckets.erase(coord)
+	_chunk_chem_colors.erase(coord)
+	_chunk_instance_origins.erase(coord)
 	if not _chunk_foliage.has(coord):
 		return
 	var inst := _chunk_foliage[coord] as MultiMeshInstance3D

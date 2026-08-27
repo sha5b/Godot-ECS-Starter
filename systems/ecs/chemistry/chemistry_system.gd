@@ -63,6 +63,10 @@ func strike(world: EcsWorld, position: Vector3, power: float = 1.0, radius: floa
 		if elemental == null or body == null:
 			continue
 		elemental.add_element(ChemistryDefs.Element.ELECTRICITY, power)
+		# Lightning starts fires (BotW): flammable bodies at the strike
+		# point catch even when they are too dry to conduct.
+		if body.fuel > 0.0:
+			elemental.add_element(ChemistryDefs.Element.FIRE, power * 0.75)
 		elemental.shock_timer = 0.35
 	_arc_chain(world, entity_power_map(world, position, power), position)
 

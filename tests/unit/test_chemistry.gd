@@ -185,6 +185,24 @@ func test_electricity_arcs_between_metal() -> void:
 		or shocked.size() == 2, "strike target also flashes")
 
 
+func test_lightning_ignites_dry_flammables() -> void:
+	## Regression: strikes must apply FIRE at the impact point — dry grass
+	## does not conduct, so without this a lightning hit does nothing.
+	var world := EcsWorld.new()
+	var chem := ChemistrySystem.new(_certain_rules())
+	var grass := _spawn_body(world, CBody.SurfaceMaterial.GRASS, 2.0, Vector3.ZERO)
+
+	chem.tick(world, 1.0, 1)
+	chem.strike(world, Vector3.ZERO, 1.2, 1.5)
+	var burning := false
+	for frame in range(2, 12):
+		chem.tick(world, 1.0, frame)
+		if (world.get_component(grass, &"CElemental") as CElemental).burning:
+			burning = true
+			break
+	assert_true(burning, "lightning set the dry grass on fire")
+
+
 func test_shockwave_dies_out() -> void:
 	## Regression: arcs must not ping-pong between conductors forever —
 	## the carrier discharges into the arc and the wave decays away.

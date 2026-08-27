@@ -28,6 +28,27 @@ extends Node
 @export var ai_sensor_range := 24.0
 @export var ai_threat_range := 7.0
 
+@export_group("World Population")
+## Spawn ECS actors from the generated world (chemistry grass + critters
+## per loaded chunk). Disable in scenes that spawn their own content.
+@export var populate_world := true
+
+## Chemistry grass bodies per chunk — an invisible simulation layer that
+## the foliage renderer reacts to (fire spreads through the visible grass).
+@export var chemistry_grass_per_chunk := 48
+
+## Foraging critters per chunk (visible utility-AI agents).
+@export var critters_per_chunk := 3
+
+## Berry bushes per chunk — edible targets for the foraging loop.
+@export var berries_per_chunk := 6
+
+## Chance a chunk contains a lit campfire (permanent fire source).
+@export_range(0.0, 1.0) var campfire_chance := 0.34
+
+## Grass only spawns on land at least this far above sea level.
+@export var populate_min_height_above_sea := 0.5
+
 
 func _ready() -> void:
 	if chemistry_rules == null:

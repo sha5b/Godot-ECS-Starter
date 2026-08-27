@@ -22,3 +22,7 @@ extends Node
 @export var river_cell_clearance: int = 2
 @export var excluded_biomes: Array[StringName] = [&"snow", &"beach", &"shallow_water", &"coral_reef", &"kelp_forest", &"deep_ocean", &"desert"]
 @export var cast_shadows: bool = false
+
+## Recolor foliage instances near ECS chemistry events (fire spread,
+## charred patches, freezing). Costs nothing until events fire.
+@export var chemistry_reactive: bool = true

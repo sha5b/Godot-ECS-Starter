@@ -138,6 +138,11 @@ godot --headless --path . --script tests/run_tests.gd
 # Visual integration test (fire spread, panic, rain, lightning, ice)
 # Also runnable in the editor: open tests/visual/ecs_visual_test.tscn
 godot --headless --path . res://tests/visual/ecs_visual_test.tscn
+
+# World generation QA sweep: loads the real world across seeds and checks
+# collision coverage/placement, foliage + ECS alignment, content diversity,
+# and chunk seams. Run visually to watch it cycle seeds (N = next, Esc = quit).
+godot --headless --path . res://tests/visual/worldgen_qa_test.tscn
 ```
 
 ## Starter principles
@@ -165,6 +170,7 @@ godot --headless --path . res://tests/visual/ecs_visual_test.tscn
 | **Q / E** | Rotate (keyboard) |
 | **Middle-drag** | Fast pan |
 | **Shift** | Double pan speed |
+| **L** | Lightning strike at camera focus (ignites grass) |
 
 The camera eases toward its target pose, keeps its focus on the ground, and
 shortens its boom when terrain would block the view.

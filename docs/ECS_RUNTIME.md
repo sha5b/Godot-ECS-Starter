@@ -120,8 +120,19 @@ frame-rate independent. Distances are `@export`s on the `EcsConfig` child.
 
 ## Using it
 
-The runtime is live in the main world scene (`EcsSystem` under `World`).
-Any script can reach it:
+The runtime is live in the main world scene (`EcsSystem` under `World`) and
+**populates itself from the generated world**: every loaded chunk seeds an
+invisible layer of chemistry grass (fire spreads through the *visible*
+foliage — the renderer recolors instances near ignite/char/extinguish/freeze
+events), a few foraging critters with utility AI, edible berry bushes for
+the seek-food loop, and the occasional lit campfire as a permanent fire
+source. Everything despawns with its chunk. Weather couples automatically: the WeatherSystem's rain soaks
+bodies and douses fires, and wind biases fire spread. Press **L** to call
+lightning down at the camera focus — strikes ignite dry grass (BotW rules).
+Densities are inspector knobs on the `EcsConfig` child
+(`chemistry_grass_per_chunk`, `critters_per_chunk`, `populate_world`).
+
+Any script can reach the runtime:
 
 ```gdscript
 var ecs: EcsSystem = get_tree().get_first_node_in_group(&"ecs_systems")  # or a direct node ref
