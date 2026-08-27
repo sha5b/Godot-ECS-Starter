@@ -57,6 +57,9 @@ signal river_chunk_ready(chunk_coord: Vector2i, river_count: int)
 signal chunk_load_requested(chunk_coord: Vector2i)
 signal chunk_unload_requested(chunk_coord: Vector2i)
 
+# --- ECS runtime signals ---
+signal ecs_event(channel: StringName, payload: Dictionary)
+
 # --- System lifecycle signals ---
 signal system_registered(system_name: StringName)
 signal system_unregistered(system_name: StringName)
@@ -101,5 +104,6 @@ func _connect_debug_logging() -> void:
 	river_chunk_ready.connect(func(coord, river_count): print("[SystemBus] river_chunk_ready @ %s count=%d" % [str(coord), river_count]))
 	chunk_load_requested.connect(func(coord): print("[SystemBus] chunk_load_requested @ %s" % str(coord)))
 	chunk_unload_requested.connect(func(coord): print("[SystemBus] chunk_unload_requested @ %s" % str(coord)))
+	ecs_event.connect(func(channel, payload): print("[SystemBus] ecs_event: %s %s" % [str(channel), str(payload)]))
 	system_registered.connect(func(sys_name): print("[SystemBus] system_registered: %s" % sys_name))
 	system_unregistered.connect(func(sys_name): print("[SystemBus] system_unregistered: %s" % sys_name))

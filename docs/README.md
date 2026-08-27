@@ -19,10 +19,9 @@ Godot ECS Starter is a Godot-native, inspector-first ECS-style starter kit built
   - Architectural rules
   - Content authoring rules
 
-- **[Implementation Plan](IMPLEMENTATION_PLAN.md)**
-  - Current roadmap
-  - Completed milestones
-  - Future phases
+- **[ECS Runtime](ECS_RUNTIME.md)**
+  - BotW-style actor layer: entities, chemistry engine, utility AI
+  - Tiered processing and how to use the runtime
 
 ## Documentation Map
 
@@ -57,6 +56,10 @@ Godot ECS Starter is a Godot-native, inspector-first ECS-style starter kit built
 
 - **`autoloads/game_config.gd`**
   - Global configuration and debug flags
+
+- **`systems/ecs/`**
+  - Data-oriented ECS runtime: entities, chemistry, utility AI, tiers
+  - Hosted by `EcsSystem`, tested in `tests/`
 
 ## Quick mental model
 

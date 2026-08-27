@@ -68,6 +68,12 @@ func _process(_delta: float) -> void:
 	text += "Weather: %s | Rain: %.0f%% | Wind: (%.1f, %.1f) str=%.1f\n" % [weather, rain * 100.0, wind.x, wind.z, SharedWorld.wind_strength]
 	text += "Biome: %s\n" % biome
 	text += "Chunks: %d | Flora: %d | Fauna: %d\n" % [chunk_count, flora_count, fauna_count]
+	var ecs_stats: Dictionary = SharedWorld.ecs_stats
+	if not ecs_stats.is_empty():
+		var tiers: PackedInt32Array = ecs_stats.get("tier_counts", PackedInt32Array())
+		text += "ECS entities: %d | T0 %d / T1 %d / T2 %d / T3 %d\n" % [
+			ecs_stats.get("entities", 0), tiers[0], tiers[1], tiers[2], tiers[3],
+		]
 	text += "--- Systems ---\n"
 	for sn in system_names:
 		text += "  %s\n" % sn

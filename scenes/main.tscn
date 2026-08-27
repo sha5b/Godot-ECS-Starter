@@ -6,7 +6,6 @@
 [ext_resource type="PackedScene" path="res://systems/biome/biome_system.tscn" id="4_biome"]
 [ext_resource type="PackedScene" path="res://systems/weather/weather_system.tscn" id="5_weather"]
 [ext_resource type="PackedScene" uid="uid://coywvyrequaps" path="res://systems/flora/flora_system.tscn" id="6_flora"]
-[ext_resource type="PackedScene" path="res://scenes/player/third_person_player.tscn" id="7_player"]
 [ext_resource type="Script" uid="uid://dt7s1q0l40s01" path="res://scenes/debug_hud.gd" id="8_hud"]
 [ext_resource type="PackedScene" path="res://systems/water/water_system.tscn" id="9_water"]
 [ext_resource type="PackedScene" path="res://systems/navigation/navigation_system.tscn" id="10_nav"]
@@ -17,6 +16,8 @@
 [ext_resource type="PackedScene" path="res://systems/geo/geo_system.tscn" id="16_geo"]
 [ext_resource type="PackedScene" path="res://systems/weather/weather_volume_system.tscn" id="17_weather_volume"]
 [ext_resource type="PackedScene" path="res://systems/foliage/foliage_system.tscn" id="18_foliage"]
+[ext_resource type="PackedScene" path="res://systems/ecs/ecs_system.tscn" id="19_ecs"]
+[ext_resource type="Script" path="res://scenes/rts_camera.gd" id="20_cam"]
 
 [sub_resource type="ShaderMaterial" id="SkyMat_1"]
 shader = ExtResource("12_cloud_shader")
@@ -70,7 +71,15 @@ transform = Transform3D(0.99961203, 0.027851852, 0, -0.027851852, 0.99961203, 0,
 
 [node name="FaunaSystem" parent="." unique_id=117331885 instance=ExtResource("11_fauna")]
 
-[node name="Player" parent="." unique_id=171199750 instance=ExtResource("7_player")]
+[node name="EcsSystem" parent="." unique_id=1899447002 instance=ExtResource("19_ecs")]
+
+[node name="RtsCamera" type="Camera3D" parent="." unique_id=1820477511]
+script = ExtResource("20_cam")
+focus = Vector3(48, 0, 48)
+distance = 70.0
+max_distance = 220.0
+focus_bounds = 900.0
+current = true
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1043160145]
 environment = SubResource("Env_1")

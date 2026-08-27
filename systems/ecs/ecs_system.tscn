@@ -1,0 +1,10 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://systems/ecs/ecs_system.gd" id="1_ecs"]
+[ext_resource type="Script" path="res://systems/ecs/ecs_config.gd" id="2_config"]
+
+[node name="EcsSystem" type="Node"]
+script = ExtResource("1_ecs")
+
+[node name="EcsConfig" type="Node" parent="."]
+script = ExtResource("2_config")

@@ -17,13 +17,16 @@ Godot ECS Starter is a Godot-native, inspector-first ECS-style starter kit built
   - new systems can be added under `World`
   - new flora, fauna, and biome content can be added as single `.tscn` scenes
 
+- **BotW-style ECS runtime**
+  - data-oriented actors with a chemistry engine (elements × materials), utility AI, and tiered processing
+  - see **[ECS Runtime](docs/ECS_RUNTIME.md)**
+
 ## Documentation
 
 - **[Docs index](docs/README.md)**
 - **[Architecture](docs/ARCHITECTURE.md)**
 - **[Adding to Godot ECS Starter](docs/ADDING_TO_GODOT_ECS_STARTER.md)**
 - **[Design Doctrine](docs/DESIGN_DOCTRINE.md)**
-- **[Implementation Plan](docs/IMPLEMENTATION_PLAN.md)**
 
 ## How it works
 
@@ -112,6 +115,7 @@ res://
 ├── scenes/
 ├── systems/
 │   ├── base/
+│   ├── ecs/            BotW-style ECS runtime (chemistry, utility AI, tiers)
 │   ├── terrain/
 │   ├── river/
 │   ├── water/
@@ -121,7 +125,19 @@ res://
 │   ├── flora/
 │   ├── fauna/
 │   └── navigation/
+├── tests/              headless unit tests + visual integration test
 └── project.godot
+```
+
+## Testing
+
+```bash
+# Unit tests (45 tests, exits non-zero on failure)
+godot --headless --path . --script tests/run_tests.gd
+
+# Visual integration test (fire spread, panic, rain, lightning, ice)
+# Also runnable in the editor: open tests/visual/ecs_visual_test.tscn
+godot --headless --path . res://tests/visual/ecs_visual_test.tscn
 ```
 
 ## Starter principles
@@ -141,10 +157,14 @@ res://
 
 ## Controls
 
-| Key | Action |
+| Input | Action |
 |---|---|
-| **WASD** | Move camera |
-| **Mouse** | Look around |
-| **Shift** | Fast move |
-| **Space / Ctrl** | Up / Down |
-| **Escape** | Toggle mouse capture |
+| **WASD / arrows** | Pan camera |
+| **Mouse wheel** | Smooth zoom |
+| **Hold right mouse + move** | Rotate / tilt |
+| **Q / E** | Rotate (keyboard) |
+| **Middle-drag** | Fast pan |
+| **Shift** | Double pan speed |
+
+The camera eases toward its target pose, keeps its focus on the ground, and
+shortens its boom when terrain would block the view.

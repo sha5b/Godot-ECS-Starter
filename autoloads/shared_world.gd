@@ -74,6 +74,11 @@ var tribe_registry: Dictionary = {}
 
 var building_registry: Dictionary = {}
 
+# --- ECS runtime ---
+## Live ECS statistics written by EcsSystem (entities, tier counts,
+## per-system microseconds). Read by debug HUDs.
+var ecs_stats: Dictionary = {}
+
 # --- Rivers ---
 ## River paths per chunk: coord → Array of Array[Vector3] (written by TerrainSystem)
 var river_paths: Dictionary = {}

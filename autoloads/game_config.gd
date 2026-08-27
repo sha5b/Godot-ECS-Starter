@@ -15,8 +15,9 @@ extends Node
 ## Size of each chunk in world units
 @export var chunk_size: float = 32.0
 
-## How many chunks around the camera to keep loaded (radius)
-@export var load_radius: int = 2
+## How many chunks around the camera to keep loaded (radius).
+## 1 = 3x3 startup field — the world streams outward as the camera moves.
+@export var load_radius: int = 1
 
 ## Buffer beyond load_radius before unloading (prevents thrashing)
 @export var unload_buffer: int = 2

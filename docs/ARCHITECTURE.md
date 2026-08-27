@@ -39,9 +39,16 @@ World
 ├── CloudSystem
 ├── FloraSystem
 ├── FaunaSystem
+├── EcsSystem
 ├── FlyCamera
 └── DebugHUD
 ```
+
+`EcsSystem` hosts the data-oriented ECS runtime (entities, chemistry
+engine, utility AI, tiered processing) described in
+**[ECS Runtime](ECS_RUNTIME.md)**. It bridges both ways: SharedWorld
+weather feeds the chemistry environment, and ECS events are forwarded to
+`SystemBus.ecs_event`.
 
 ## Core building blocks
 
@@ -225,6 +232,9 @@ That pattern is the intended one:
 
 ## Current runtime notes
 
-- `ChunkManager` now defaults to a `3x3` startup field around the player through `GameConfig.load_radius = 1`
+- the world is observed through the RTS god camera (`scenes/rts_camera.gd`) — there is no player avatar
+- `ChunkManager` defaults to a `3x3` startup field (`GameConfig.load_radius = 1`) and streams 1 chunk per frame
+- terrain meshing is budgeted: column Y-bands skip the ~90% of the volume that cannot produce surface, normals come from the chunk-local density grid, and surfaces commit through `add_surface_from_arrays` instead of `SurfaceTool`
+- adaptive refinement defaults to 1 (stylized, fast); raise `adaptive_refine_subdivisions` to 2 for finer cliffs, shores, and riverbanks at extra build cost
 - terrain seam safety is currently preserved by preventing adaptive refinement on chunk-border cells
 - river terrain alignment is treated as a terrain problem first, not a visual ribbon problem

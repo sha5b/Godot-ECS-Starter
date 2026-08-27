@@ -13,8 +13,9 @@ var _pending_loads: Array[Vector2i] = []
 ## Previous camera chunk pos — used to detect movement
 var _last_camera_chunk: Vector2i = Vector2i(999999, 999999)
 
-## Maximum chunk loads per frame to prevent frame spikes
-var _max_loads_per_frame: int = 2
+## Maximum chunk loads per frame to prevent frame spikes. One keeps
+## streaming smooth; chunks are heavy enough that two reads as a hitch.
+var _max_loads_per_frame: int = 1
 
 
 func _initialize() -> void:

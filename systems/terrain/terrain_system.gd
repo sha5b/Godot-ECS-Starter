@@ -1845,11 +1845,20 @@ func _sample_density_world(wx: float, world_y: float, wz: float) -> float:
 
 # ── Marching Cubes mesh extraction ──────────────────────────────────────────
 
-const MC_EDGE_CORNERS := [
-	[0, 1], [1, 2], [2, 3], [3, 0],
-	[4, 5], [5, 6], [6, 7], [7, 4],
-	[0, 4], [1, 5], [2, 6], [3, 7],
+## Flat pairs (edge*2, edge*2+1) — avoids allocating an Array per lookup.
+## (Instance var because packed arrays cannot be const expressions.)
+var MC_EDGE_CORNER_PAIRS := PackedInt32Array([
+	0, 1, 1, 2, 2, 3, 3, 0,
+	4, 5, 5, 6, 6, 7, 7, 4,
+	0, 4, 1, 5, 2, 6, 3, 7,
+])
+
+
+var _mc_corners_scratch: Array[Vector3] = [
+	Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO,
+	Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO,
 ]
+var _mc_dd_scratch: Array[float] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 
 func _build_marching_cubes_mesh(density: PackedFloat32Array,
@@ -1869,11 +1878,58 @@ func _build_marching_cubes_mesh(density: PackedFloat32Array,
 	var norms := PackedVector3Array()
 	var colors := PackedColorArray()
 
-	for gy in res_y - 1:
-		var y0 := min_y + float(gy) * step_y
-		var y1 := y0 + step_y
-		for gz in res_xz - 1:
-			for gx in res_xz - 1:
+	# Column Y-bands: only cells whose corner signs straddle the iso level
+	# can produce geometry (the surface shell plus any cave ceilings). This
+	# skips the ~90% of the volume that is solid rock or open air — the
+	# single biggest cost of the old all-cells loop.
+	var bands := PackedInt32Array()
+	bands.resize(res_xz * res_xz * 2)
+	for gz in res_xz:
+		for gx in res_xz:
+			var base := gz * res_xz + gx
+			var lo := -1
+			var hi := -2
+			var below := density[base] < iso
+			for gy in res_y - 1:
+				var next_below := density[(gy + 1) * ss + base] < iso
+				if below != next_below:
+					if lo < 0:
+						lo = gy
+					hi = gy
+				below = next_below
+			bands[base * 2] = lo
+			bands[base * 2 + 1] = hi
+
+	# Reused scratch arrays — the old loop allocated two heap arrays per
+	# surface cell, which dominated allocation time.
+	var corners := _mc_corners_scratch
+	var dd := _mc_dd_scratch
+	var grid_step_y := step_y
+	for gz in res_xz - 1:
+		for gx in res_xz - 1:
+			# A cell is mixed if the surface crosses inside it in ANY of its
+			# four columns — horizontal steps between neighboring columns
+			# (cliff edges, shorelines) count too, so union the four column
+			# bands. Missing this is what tore the mesh open before.
+			var lo := -1
+			var hi := -2
+			for c in 4:
+				var cx := gx + (c & 1)
+				var cz := gz + (c >> 1)
+				var band_base := (cz * res_xz + cx) * 2
+				var c_lo := bands[band_base]
+				if c_lo < 0:
+					continue
+				if lo < 0 or c_lo < lo:
+					lo = c_lo
+				var c_hi := bands[band_base + 1]
+				if c_hi > hi:
+					hi = c_hi
+			if lo < 0:
+				continue
+			for gy in range(lo, hi + 1):
+				var y0 := min_y + float(gy) * step_y
+				var y1 := y0 + step_y
 				var d0 := density[gy * ss + gz * res_xz + gx]
 				var d1 := density[gy * ss + gz * res_xz + (gx + 1)]
 				var d2 := density[gy * ss + (gz + 1) * res_xz + (gx + 1)]
@@ -1883,36 +1939,33 @@ func _build_marching_cubes_mesh(density: PackedFloat32Array,
 				var d6 := density[(gy + 1) * ss + (gz + 1) * res_xz + (gx + 1)]
 				var d7 := density[(gy + 1) * ss + (gz + 1) * res_xz + gx]
 
-				var cube_idx := 0
-				if d0 < iso: cube_idx |= 1
-				if d1 < iso: cube_idx |= 2
-				if d2 < iso: cube_idx |= 4
-				if d3 < iso: cube_idx |= 8
-				if d4 < iso: cube_idx |= 16
-				if d5 < iso: cube_idx |= 32
-				if d6 < iso: cube_idx |= 64
-				if d7 < iso: cube_idx |= 128
-
-				if cube_idx == 0 or cube_idx == 255:
-					continue
-
 				var x0 := float(gx) * step_xz
 				var z0 := float(gz) * step_xz
 				var x1 := x0 + step_xz
 				var z1 := z0 + step_xz
-				var corners: Array[Vector3] = [
-					Vector3(x0, y0, z0), Vector3(x1, y0, z0),
-					Vector3(x1, y0, z1), Vector3(x0, y0, z1),
-					Vector3(x0, y1, z0), Vector3(x1, y1, z0),
-					Vector3(x1, y1, z1), Vector3(x0, y1, z1),
-				]
-				var dd: Array[float] = [d0, d1, d2, d3, d4, d5, d6, d7]
+				corners[0] = Vector3(x0, y0, z0)
+				corners[1] = Vector3(x1, y0, z0)
+				corners[2] = Vector3(x1, y0, z1)
+				corners[3] = Vector3(x0, y0, z1)
+				corners[4] = Vector3(x0, y1, z0)
+				corners[5] = Vector3(x1, y1, z0)
+				corners[6] = Vector3(x1, y1, z1)
+				corners[7] = Vector3(x0, y1, z1)
+				dd[0] = d0
+				dd[1] = d1
+				dd[2] = d2
+				dd[3] = d3
+				dd[4] = d4
+				dd[5] = d5
+				dd[6] = d6
+				dd[7] = d7
 				if _should_refine_mc_cell(surface_hm, river_lookup, res_xz, gx, gz, step_xz, sea):
 					_append_refined_mc_cell(verts, norms, colors, coord, surface_hm, gx, gz, gy,
-						step_xz, step_y, min_y, iso, sea, hs)
+						step_xz, step_y, min_y, iso, sea, hs, density, ss, res_xz, res_y)
 				else:
 					_append_mc_triangles_from_cube(verts, norms, colors, coord, surface_hm,
-						res_xz, step_xz, step_y, step_xz, iso, sea, hs, corners, dd)
+						res_xz, step_xz, step_y, step_xz, iso, sea, hs, corners, dd,
+						density, ss, res_y, min_y)
 
 	if verts.is_empty():
 		verts.append(Vector3.ZERO)
@@ -1925,13 +1978,16 @@ func _build_marching_cubes_mesh(density: PackedFloat32Array,
 		colors.append(Color.BLACK)
 		colors.append(Color.BLACK)
 
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for i in verts.size():
-		st.set_normal(norms[i])
-		st.set_color(colors[i])
-		st.add_vertex(verts[i])
-	return st.commit()
+	# Direct array commit: SurfaceTool's per-vertex calls cost more than
+	# the entire marching-cubes pass above.
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = norms
+	arrays[Mesh.ARRAY_COLOR] = colors
+	var out_mesh := ArrayMesh.new()
+	out_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return out_mesh
 
 
 func _build_river_lookup(river_cells: Array) -> Dictionary:
@@ -1986,7 +2042,8 @@ func _surface_slope_degrees(surface_hm: PackedFloat32Array, res_xz: int,
 func _append_refined_mc_cell(verts: PackedVector3Array, norms: PackedVector3Array,
 		colors: PackedColorArray, coord: Vector2i, surface_hm: PackedFloat32Array,
 		gx: int, gz: int, gy: int, step_xz: float, step_y: float,
-		min_y: float, iso: float, sea: float, hs: float) -> void:
+		min_y: float, iso: float, sea: float, hs: float,
+		density: PackedFloat32Array, ss: int, res_xz: int, res_y: int) -> void:
 	var refine := maxi(_config.adaptive_refine_subdivisions, 1)
 	if refine <= 1:
 		return
@@ -2005,26 +2062,37 @@ func _append_refined_mc_cell(verts: PackedVector3Array, norms: PackedVector3Arra
 				var x1 := x0 + sub_step_xz
 				var z1 := z0 + sub_step_xz
 				var y1 := y0 + sub_step_y
-				var corners: Array[Vector3] = [
-					Vector3(x0, y0, z0), Vector3(x1, y0, z0),
-					Vector3(x1, y0, z1), Vector3(x0, y0, z1),
-					Vector3(x0, y1, z0), Vector3(x1, y1, z0),
-					Vector3(x1, y1, z1), Vector3(x0, y1, z1),
-				]
-				var origin_x := float(coord.x) * GameConfig.chunk_size
-				var origin_z := float(coord.y) * GameConfig.chunk_size
-				var dd: Array[float] = []
-				for corner in corners:
-					dd.append(_sample_density_world(origin_x + corner.x, corner.y, origin_z + corner.z))
+				var corners := _mc_corners_scratch
+				var dd := _mc_dd_scratch
+				corners[0] = Vector3(x0, y0, z0)
+				corners[1] = Vector3(x1, y0, z0)
+				corners[2] = Vector3(x1, y0, z1)
+				corners[3] = Vector3(x0, y0, z1)
+				corners[4] = Vector3(x0, y1, z0)
+				corners[5] = Vector3(x1, y1, z0)
+				corners[6] = Vector3(x1, y1, z1)
+				corners[7] = Vector3(x0, y1, z1)
+				# Corner densities come from the chunk-local grid via
+				# trilinear interpolation — the same values the world
+				# sampler returns for in-chunk points, without the chunk
+				# manager round-trip per corner.
+				for c in 8:
+					dd[c] = _grid_density(density, ss, res_xz, res_y,
+						corners[c].x / step_xz,
+						(corners[c].y - min_y) / step_y,
+						corners[c].z / step_xz)
 				_append_mc_triangles_from_cube(verts, norms, colors, coord, surface_hm,
 					int(sqrt(surface_hm.size())), sub_step_xz, sub_step_y, surface_step_xz,
-					iso, sea, hs, corners, dd)
+					iso, sea, hs, corners, dd,
+					density, ss, res_y, min_y)
 
 
 func _append_mc_triangles_from_cube(verts: PackedVector3Array, norms: PackedVector3Array,
 		colors: PackedColorArray, coord: Vector2i, surface_hm: PackedFloat32Array,
 		res_xz: int, normal_step_xz: float, normal_step_y: float, hm_step_xz: float, iso: float,
-		sea: float, hs: float, corners: Array[Vector3], dd: Array[float]) -> void:
+		sea: float, hs: float, corners: Array[Vector3], dd: Array[float],
+		density: PackedFloat32Array = PackedFloat32Array(), ss: int = 0, res_y: int = 0,
+		grid_min_y: float = 0.0) -> void:
 	if dd.size() < 8 or corners.size() < 8:
 		return
 	var cube_idx := 0
@@ -2041,6 +2109,12 @@ func _append_mc_triangles_from_cube(verts: PackedVector3Array, norms: PackedVect
 	var edges: PackedInt32Array = _mc_tri_table[cube_idx]
 	if edges.is_empty() or edges[0] == -1:
 		return
+	# Normals come from the chunk-local density grid — the world-space
+	# gradient sampler cost 18 chunk-manager round-trips per triangle and
+	# dominated the entire chunk build.
+	var use_grid_normals := ss > 0
+	var grid_step_xz := GameConfig.chunk_size / maxf(float(res_xz - 1), 1.0)
+	var grid_step_y := (_config.grid_max_y - grid_min_y) / maxf(float(res_y - 1), 1.0)
 	var ei := 0
 	while ei + 2 < edges.size() and edges[ei] != -1:
 		if edges[ei + 1] == -1 or edges[ei + 2] == -1:
@@ -2048,9 +2122,15 @@ func _append_mc_triangles_from_cube(verts: PackedVector3Array, norms: PackedVect
 		var v0 := _interp_edge(edges[ei], corners, dd, iso)
 		var v1 := _interp_edge(edges[ei + 1], corners, dd, iso)
 		var v2 := _interp_edge(edges[ei + 2], corners, dd, iso)
-		var n0 := _density_gradient_normal_world(coord, normal_step_xz, normal_step_y, v0.x, v0.y, v0.z)
-		var n1 := _density_gradient_normal_world(coord, normal_step_xz, normal_step_y, v1.x, v1.y, v1.z)
-		var n2 := _density_gradient_normal_world(coord, normal_step_xz, normal_step_y, v2.x, v2.y, v2.z)
+		var n0 := _grid_gradient_normal(density, ss, res_xz, res_y,
+			grid_step_xz, grid_step_y, grid_min_y, v0) if use_grid_normals \
+			else _density_gradient_normal_world(coord, normal_step_xz, normal_step_y, v0.x, v0.y, v0.z)
+		var n1 := _grid_gradient_normal(density, ss, res_xz, res_y,
+			grid_step_xz, grid_step_y, grid_min_y, v1) if use_grid_normals \
+			else _density_gradient_normal_world(coord, normal_step_xz, normal_step_y, v1.x, v1.y, v1.z)
+		var n2 := _grid_gradient_normal(density, ss, res_xz, res_y,
+			grid_step_xz, grid_step_y, grid_min_y, v2) if use_grid_normals \
+			else _density_gradient_normal_world(coord, normal_step_xz, normal_step_y, v2.x, v2.y, v2.z)
 		var avg_y := (v0.y + v1.y + v2.y) / 3.0
 		var avg_x := (v0.x + v1.x + v2.x) / 3.0
 		var avg_z := (v0.z + v1.z + v2.z) / 3.0
@@ -2075,10 +2155,54 @@ func _append_mc_triangles_from_cube(verts: PackedVector3Array, norms: PackedVect
 		ei += 3
 
 
+# ── Chunk-local density sampling (fast paths for meshing) ────────────────────
+
+
+## Trilinear sample of the chunk density grid in grid coordinates.
+## Clamped at borders, so exterior taps return edge values.
+func _grid_density(density: PackedFloat32Array, ss: int, res_xz: int, res_y: int,
+		fx: float, fy: float, fz: float) -> float:
+	fx = clampf(fx, 0.0, float(res_xz - 1))
+	fy = clampf(fy, 0.0, float(res_y - 1))
+	fz = clampf(fz, 0.0, float(res_xz - 1))
+	var x0 := int(fx)
+	var y0 := int(fy)
+	var z0 := int(fz)
+	var x1 := mini(x0 + 1, res_xz - 1)
+	var y1 := mini(y0 + 1, res_y - 1)
+	var z1 := mini(z0 + 1, res_xz - 1)
+	var tx := fx - float(x0)
+	var ty := fy - float(y0)
+	var tz := fz - float(z0)
+	var c00 := lerpf(density[y0 * ss + z0 * res_xz + x0], density[y0 * ss + z0 * res_xz + x1], tx)
+	var c10 := lerpf(density[y0 * ss + z1 * res_xz + x0], density[y0 * ss + z1 * res_xz + x1], tx)
+	var c01 := lerpf(density[y1 * ss + z0 * res_xz + x0], density[y1 * ss + z0 * res_xz + x1], tx)
+	var c11 := lerpf(density[y1 * ss + z1 * res_xz + x0], density[y1 * ss + z1 * res_xz + x1], tx)
+	return lerpf(lerpf(c00, c10, tz), lerpf(c01, c11, tz), ty)
+
+
+## Surface normal from central differences over the chunk-local grid —
+## a fraction of the cost of world-space gradient sampling.
+func _grid_gradient_normal(density: PackedFloat32Array, ss: int, res_xz: int, res_y: int,
+		step_xz: float, step_y: float, min_y: float, v: Vector3) -> Vector3:
+	var fx := v.x / step_xz
+	var fy := (v.y - min_y) / step_y
+	var fz := v.z / step_xz
+	var dx := _grid_density(density, ss, res_xz, res_y, fx + 1.0, fy, fz) \
+		- _grid_density(density, ss, res_xz, res_y, fx - 1.0, fy, fz)
+	var dy := _grid_density(density, ss, res_xz, res_y, fx, fy + 1.0, fz) \
+		- _grid_density(density, ss, res_xz, res_y, fx, fy - 1.0, fz)
+	var dz := _grid_density(density, ss, res_xz, res_y, fx, fy, fz + 1.0) \
+		- _grid_density(density, ss, res_xz, res_y, fx, fy, fz - 1.0)
+	var grad := Vector3(dx / (2.0 * step_xz), dy / (2.0 * step_y), dz / (2.0 * step_xz))
+	if grad.length_squared() < 0.0001:
+		return Vector3.UP
+	return -grad.normalized()
+
+
 func _interp_edge(edge: int, corners: Array[Vector3], d: Array[float], iso: float) -> Vector3:
-	var pair: Array = MC_EDGE_CORNERS[edge]
-	var a: int = pair[0]
-	var b: int = pair[1]
+	var a: int = MC_EDGE_CORNER_PAIRS[edge * 2]
+	var b: int = MC_EDGE_CORNER_PAIRS[edge * 2 + 1]
 	var da := d[a]
 	var db := d[b]
 	var denom := da - db

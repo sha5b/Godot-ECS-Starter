@@ -1,0 +1,66 @@
+[gd_scene load_steps=11 format=3]
+
+[ext_resource type="PackedScene" path="res://systems/ecs/ecs_system.tscn" id="1_ecs"]
+[ext_resource type="Script" path="res://tests/visual/visual_test_director.gd" id="2_director"]
+[ext_resource type="Script" path="res://tests/visual/grass_field.gd" id="3_grass"]
+[ext_resource type="Script" path="res://tests/visual/chemistry_fx.gd" id="4_fx"]
+[ext_resource type="Script" path="res://scenes/rts_camera.gd" id="5_cam"]
+
+[sub_resource type="PlaneMesh" id="GroundMesh"]
+size = Vector2(110, 110)
+
+[sub_resource type="StandardMaterial3D" id="GroundMat"]
+albedo_color = Color(0.23, 0.29, 0.19, 1)
+roughness = 1.0
+specular_mode = 0
+
+[sub_resource type="ProceduralSkyMaterial" id="SkyMat"]
+sky_horizon_color = Color(0.66, 0.74, 0.85, 1)
+sky_top_color = Color(0.34, 0.54, 0.84, 1)
+ground_bottom_color = Color(0.16, 0.14, 0.12, 1)
+
+[sub_resource type="Sky" id="Sky_1"]
+sky_material = SubResource("SkyMat")
+
+[sub_resource type="Environment" id="Env_1"]
+background_mode = 2
+sky = SubResource("Sky_1")
+tonemap_mode = 2
+fog_enabled = true
+fog_light_color = Color(0.7, 0.76, 0.85, 1)
+fog_density = 0.0035
+
+[node name="EcsVisualTest" type="Node3D"]
+script = ExtResource("2_director")
+
+[node name="EcsSystem" parent="." instance=ExtResource("1_ecs")]
+
+[node name="EcsConfig" parent="EcsSystem" index="0"]
+tier_near_distance = 25.0
+tier_mid_distance = 40.0
+tier_far_distance = 70.0
+movement_bounds_radius = 55.0
+ai_sensor_range = 30.0
+
+[node name="GrassField" type="Node3D" parent="."]
+script = ExtResource("3_grass")
+
+[node name="ChemistryFx" type="Node3D" parent="."]
+script = ExtResource("4_fx")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.877583, -0.403423, 0.259035, 0, 0.540302, 0.841471, -0.479426, -0.73846, 0.47416, 0, 40, 0)
+shadow_enabled = true
+light_energy = 1.2
+directional_shadow_max_distance = 70.0
+
+[node name="Ground" type="MeshInstance3D" parent="."]
+mesh = SubResource("GroundMesh")
+surface_material_override/0 = SubResource("GroundMat")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Env_1")
+
+[node name="RtsCamera" type="Camera3D" parent="."]
+script = ExtResource("5_cam")
+current = true
