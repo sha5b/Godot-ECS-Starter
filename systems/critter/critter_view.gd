@@ -111,7 +111,47 @@ func _process(delta: float) -> void:
 		return
 	var ratio := _motion_ratio if demo_speed_ratio < 0.0 else clampf(demo_speed_ratio, 0.0, 1.0)
 	_gait.tick(_gait_accum, ratio)
+	_align_to_slope(_gait_accum)
 	_gait_accum = 0.0
+
+
+## Lean the whole body onto the slope it is standing on.
+##
+## Foot IK alone keeps the feet on the ground but leaves the torso dead
+## level, so a critter on a hillside looks like it is standing on an
+## invisible flat plate. Tilting the rig to the surface normal is what
+## makes it read as actually being on the terrain. Damped, because the
+## normal jumps as the critter crosses facets.
+func _align_to_slope(delta: float) -> void:
+	if _body_root == null or not is_inside_tree():
+		return
+	var normal := _sample_ground_normal()
+	if normal == Vector3.ZERO:
+		return
+	# The view already carries the heading, so solve the tilt in its local
+	# space and leave yaw alone.
+	var local_n := (global_transform.basis.inverse() * normal).normalized()
+	if local_n.dot(Vector3.UP) > 0.9995:
+		local_n = Vector3.UP
+	var wanted := Basis(Quaternion(Vector3.UP, local_n))
+	var blend := clampf(delta * 6.0, 0.0, 1.0)
+	_body_root.basis = Basis(
+		_body_root.basis.get_rotation_quaternion().slerp(
+			wanted.get_rotation_quaternion(), blend))
+
+
+## Surface normal under the critter, or ZERO when nothing is below.
+func _sample_ground_normal() -> Vector3:
+	var space := get_world_3d().direct_space_state
+	if space == null:
+		return Vector3.ZERO
+	var from := global_position + Vector3.UP * 3.0
+	var query := PhysicsRayQueryParameters3D.create(from, global_position - Vector3.UP * 6.0)
+	query.hit_back_faces = false
+	var hit := space.intersect_ray(query)
+	if hit.is_empty():
+		return Vector3.ZERO
+	return (hit["normal"] as Vector3).normalized()
 
 
 ## Ground height under a world XZ, for the gait's foot IK.

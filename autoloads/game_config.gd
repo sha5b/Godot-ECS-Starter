@@ -31,6 +31,14 @@ extends Node
 ## Buffer beyond load_radius before unloading (prevents thrashing)
 @export var unload_buffer: int = 2
 
+## Global simulation speed. Everything driven by delta scales with this —
+## the day/night cycle, weather, critter movement, chemistry, gaits — so it
+## is one dial for "how fast does the world live". 0.5 = half speed.
+## The camera deliberately opts out (see rts_camera) so panning and zooming
+## keep their normal feel no matter how slow the world is running.
+@export_range(0.05, 4.0, 0.05) var game_speed: float = 0.5
+
+
 ## Debug flags
 @export var debug_draw_chunk_borders: bool = false
 @export var debug_draw_caves: bool = false
@@ -42,6 +50,7 @@ extends Node
 
 
 func _ready() -> void:
+	Engine.time_scale = game_speed
 	if randomize_seed_on_play:
 		world_seed = int(Time.get_unix_time_from_system()) ^ int(Time.get_ticks_usec() & 0x7fffffff)
 	if debug_log_signals:

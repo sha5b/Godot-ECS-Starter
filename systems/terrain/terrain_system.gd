@@ -72,7 +72,6 @@ func system_process(_delta: float) -> void:
 	if not active:
 		return
 	_update_terrain_material_params()
-	_pump_chunk_jobs()
 
 
 func _get_geo_system():
@@ -216,107 +215,18 @@ func _get_seasonal_snow_amount() -> float:
 	return 0.0
 
 
-# ── Threaded chunk generation ────────────────────────────────────────────────
-#
-# Building a chunk costs roughly 280 ms, and nearly all of it — heightmap,
-# erosion, river tracing, the density field and the marching-cubes pass —
-# is pure arithmetic over chunk-local data. Run synchronously it pinned the
-# whole game to one chunk per frame at about 7.5 FPS while the world
-# streamed in, no matter what else was switched off.
-#
-# So the pure part now runs on WorkerThreadPool and only the part that must
-# touch the engine — creating the mesh resource, parenting nodes, building
-# the collision shape, publishing globals — happens on the main thread.
-# The generated terrain is bit-for-bit what it was; only WHERE the work
-# happens changed.
-
-## Chunks waiting for a worker slot.
-var _gen_queue: Array[Vector2i] = []
-## coord -> WorkerThreadPool task id, for jobs in flight.
-var _gen_tasks: Dictionary = {}
-## coord -> finished payload, written by workers under _gen_mutex.
-var _gen_results: Dictionary = {}
-var _gen_mutex := Mutex.new()
-
-
-func _max_parallel_jobs() -> int:
-	if not _config.threaded_generation:
-		return 0
-	return clampi(OS.get_processor_count() - 2, 1, _config.generation_max_threads)
-
-
 func _on_chunk_load_requested(coord: Vector2i) -> void:
-	if _chunk_meshes.has(coord) or _gen_tasks.has(coord) or _gen_queue.has(coord):
+	if _chunk_meshes.has(coord):
 		return
-	if _max_parallel_jobs() <= 0:
-		_commit_chunk_payload(coord, _compute_chunk_payload(coord))
-		return
-	_gen_queue.append(coord)
+	_generate_chunk(coord)
 
 
 func _on_chunk_unload_requested(coord: Vector2i) -> void:
-	# Anything still in flight for this coord is now stale. The task itself
-	# is left to finish and is reaped normally by _pump_chunk_jobs; only its
-	# result is discarded there, via the _chunk_meshes check.
-	_gen_queue.erase(coord)
-	_gen_mutex.lock()
-	_gen_results.erase(coord)
-	_gen_mutex.unlock()
 	_remove_chunk_mesh(coord)
 	SystemBus.terrain_chunk_unloaded.emit(coord)
 
 
-## Commit finished chunks, then start new ones — in that order.
-##
-## The ordering IS the backpressure. Each payload carries the chunk's
-## density grid and its full mesh arrays, several megabytes together, so if
-## workers are allowed to run ahead of the main thread the finished-but-
-## uncommitted payloads pile up without bound. Reaping a task is what frees
-## its slot, and a task is only reaped when its result is actually consumed,
-## so at most `parallel` payloads can exist at once.
-func _pump_chunk_jobs() -> void:
-	var parallel := _max_parallel_jobs()
-	if parallel <= 0:
-		return
-
-	var handled := 0
-	for coord in _gen_tasks.keys():
-		if handled >= _config.generation_commits_per_frame:
-			break
-		var task_id: int = int(_gen_tasks[coord])
-		if not WorkerThreadPool.is_task_completed(task_id):
-			continue
-		WorkerThreadPool.wait_for_task_completion(task_id)
-		_gen_tasks.erase(coord)
-		_gen_mutex.lock()
-		var payload: Dictionary = _gen_results.get(coord, {})
-		_gen_results.erase(coord)
-		_gen_mutex.unlock()
-		# Count discarded results too: the work of reaping is what we are
-		# budgeting, and a stale chunk still had to be produced.
-		handled += 1
-		if payload.is_empty() or _chunk_meshes.has(coord):
-			continue
-		_commit_chunk_payload(coord, payload)
-
-	while not _gen_queue.is_empty() and _gen_tasks.size() < parallel:
-		var next: Vector2i = _gen_queue.pop_front()
-		if _chunk_meshes.has(next):
-			continue
-		_gen_tasks[next] = WorkerThreadPool.add_task(_run_chunk_job.bind(next))
-
-
-## Worker entry point. Pure computation; hands the result back under lock.
-func _run_chunk_job(coord: Vector2i) -> void:
-	var payload := _compute_chunk_payload(coord)
-	_gen_mutex.lock()
-	_gen_results[coord] = payload
-	_gen_mutex.unlock()
-
-
-## PURE. Everything here is arithmetic over chunk-local data: no scene tree,
-## no globals, no signals. Safe to run on a generation worker.
-func _compute_chunk_payload(coord: Vector2i) -> Dictionary:
+func _generate_chunk(coord: Vector2i) -> void:
 	# Step 1: 2D heightmap (same noise pipeline as before)
 	var heightmap := _generate_heightmap(coord)
 
@@ -344,11 +254,12 @@ func _compute_chunk_payload(coord: Vector2i) -> Dictionary:
 	var river_cells_for_chunk: Array = []
 	var render_paths_for_chunk: Array = []
 	if _config.rivers_enabled:
-		river_cells_for_chunk = _trace_rivers_on_heightmap(
-			coord, pristine_hm, render_paths_for_chunk)
+		river_cells_for_chunk = _trace_rivers_on_heightmap(coord, pristine_hm)
+		render_paths_for_chunk = SharedWorld.river_paths.get(coord, [])
 		_apply_riverbed_erosion_to_heightmap(heightmap, river_cells_for_chunk,
 			render_paths_for_chunk, res, float(coord.x) * GameConfig.chunk_size,
 			float(coord.y) * GameConfig.chunk_size, GameConfig.chunk_size / float(res - 1), _config.sea_level)
+		SharedWorld.river_cells[coord] = river_cells_for_chunk
 
 	# Restore pristine border heights so chunk edges always match
 	_restore_border_heights(heightmap, border_save, res)
@@ -361,36 +272,9 @@ func _compute_chunk_payload(coord: Vector2i) -> Dictionary:
 
 	# Step 3: Extract surface heightmap from density (for other systems)
 	var surface_hm := _extract_surface_heightmap(density, res_xz, res_y)
-
-	# Step 4: Marching Cubes -> raw surface arrays (no Resource yet).
-	var arrays := _build_marching_cubes_arrays(density, res_xz, res_y, coord,
-		surface_hm, river_cells_for_chunk)
-
-	return {
-		"surface_hm": surface_hm,
-		"density": density,
-		"res_y": res_y,
-		"arrays": arrays,
-		"river_cells": river_cells_for_chunk,
-		"river_paths": render_paths_for_chunk,
-	}
-
-
-## MAIN THREAD ONLY. Turns a computed payload into live engine objects and
-## publishes the results the rest of the world reads.
-func _commit_chunk_payload(coord: Vector2i, payload: Dictionary) -> void:
-	if payload.is_empty():
-		return
-	var surface_hm: PackedFloat32Array = payload["surface_hm"]
-	var density: PackedFloat32Array = payload["density"]
-	var res_y: int = int(payload["res_y"])
-	var arrays: Array = payload["arrays"]
-
-	if _config.rivers_enabled:
-		SharedWorld.river_paths[coord] = payload["river_paths"]
-		SharedWorld.river_cells[coord] = payload["river_cells"]
 	_chunk_heightmaps[coord] = surface_hm
 
+	# Step 4: Store in ChunkData
 	var chunk_mgr := _get_chunk_manager()
 	if chunk_mgr:
 		var cd: ChunkData = chunk_mgr.get_chunk(coord)
@@ -400,7 +284,9 @@ func _commit_chunk_payload(coord: Vector2i, payload: Dictionary) -> void:
 			cd.density_res_y = res_y
 			cd.terrain_ready = true
 
-	var mesh := _mesh_from_arrays(arrays)
+	# Step 5: Build unified mesh via Marching Cubes
+	var mesh := _build_marching_cubes_mesh(density, res_xz, res_y, coord, surface_hm,
+		river_cells_for_chunk)
 
 	var mesh_instance := MeshInstance3D.new()
 	mesh_instance.mesh = mesh
@@ -418,13 +304,11 @@ func _commit_chunk_payload(coord: Vector2i, payload: Dictionary) -> void:
 	add_child(mesh_instance)
 	_chunk_meshes[coord] = mesh_instance
 
-	# Collision straight from the surface array: the mesh is already an
-	# un-indexed triangle soup, so re-extracting it with get_faces() only
-	# copied it back out again.
-	_create_chunk_collision_from_faces(coord, _faces_from_arrays(arrays))
+	# Step 6: Generate collision from the MC mesh
+	_create_chunk_collision(coord, mesh_instance)
 
 	if GameConfig.debug_draw_caves and _config.caves_enabled:
-		_debug_draw_cave_voids(coord, density, int(sqrt(surface_hm.size())), res_y, surface_hm)
+		_debug_draw_cave_voids(coord, density, res_xz, res_y, surface_hm)
 
 	SystemBus.terrain_chunk_ready.emit(coord, surface_hm)
 
@@ -1128,12 +1012,7 @@ func _segment_closest_t(point: Vector3, seg_a: Vector3, seg_b: Vector3) -> float
 
 # ── River tracing on heightmap ───────────────────────────────────────────────
 
-## Fills `out_render_paths` with this chunk's river render paths and returns
-## its river cells. Publishing to SharedWorld is the CALLER's job — this runs
-## on a generation worker thread, where touching a global dictionary would
-## race the main thread.
-func _trace_rivers_on_heightmap(coord: Vector2i, heightmap: PackedFloat32Array,
-		out_render_paths: Array) -> Array:
+func _trace_rivers_on_heightmap(coord: Vector2i, heightmap: PackedFloat32Array) -> Array:
 	var res := _config.chunk_resolution
 	var cs: float = GameConfig.chunk_size
 	var origin_x := float(coord.x) * cs
@@ -1232,7 +1111,7 @@ func _trace_rivers_on_heightmap(coord: Vector2i, heightmap: PackedFloat32Array,
 	_finalize_river_cells(river_cell_map)
 	var river_cells := river_cell_map.values()
 	river_cells.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a["index"]) < int(b["index"]))
-	out_render_paths.assign(render_paths_for_chunk)
+	SharedWorld.river_paths[coord] = render_paths_for_chunk
 	return river_cells
 
 
@@ -2023,18 +1902,16 @@ var MC_EDGE_CORNER_PAIRS := PackedInt32Array([
 ])
 
 
-## NOTE: unused. Kept only as a reminder that chunk generation is threaded —
-## any scratch buffer hung off the system will be shared by every worker.
-var _mc_corners_scratch_unused: Array[Vector3] = [
+var _mc_corners_scratch: Array[Vector3] = [
 	Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO,
 	Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO,
 ]
-var _mc_dd_scratch_unused: Array[float] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+var _mc_dd_scratch: Array[float] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 
-func _build_marching_cubes_arrays(density: PackedFloat32Array,
+func _build_marching_cubes_mesh(density: PackedFloat32Array,
 		res_xz: int, res_y: int, coord: Vector2i,
-		surface_hm: PackedFloat32Array, river_cells: Array) -> Array:
+		surface_hm: PackedFloat32Array, river_cells: Array) -> ArrayMesh:
 	var cs := GameConfig.chunk_size
 	var step_xz := cs / float(res_xz - 1)
 	var min_y := _config.grid_min_y
@@ -2073,17 +1950,8 @@ func _build_marching_cubes_arrays(density: PackedFloat32Array,
 
 	# Reused scratch arrays — the old loop allocated two heap arrays per
 	# surface cell, which dominated allocation time.
-	# Per-call scratch, NOT the shared members: chunk generation runs on
-	# several worker threads at once now, and one set of reusable arrays on
-	# the system would be written by all of them simultaneously. Two small
-	# allocations per chunk is nothing next to the marching-cubes pass; the
-	# point of reusing them was to avoid allocating per CELL, which this
-	# still does.
-	var corners: Array[Vector3] = [
-		Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO,
-		Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO,
-	]
-	var dd: Array[float] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+	var corners := _mc_corners_scratch
+	var dd := _mc_dd_scratch
 	var grid_step_y := step_y
 	for gz in res_xz - 1:
 		for gx in res_xz - 1:
@@ -2107,13 +1975,6 @@ func _build_marching_cubes_arrays(density: PackedFloat32Array,
 					hi = c_hi
 			if lo < 0:
 				continue
-			# Hoisted out of the Y loop: the refine test depends only on the
-			# COLUMN (surface slope, shore band, nearby river cells), yet it
-			# was re-evaluated for every vertical level in the band — a
-			# slope computation plus up to nine Vector2i dictionary lookups
-			# repeated for each cell in a column that can be dozens tall.
-			var refine_cell := _should_refine_mc_cell(
-				surface_hm, river_lookup, res_xz, gx, gz, step_xz, sea)
 			for gy in range(lo, hi + 1):
 				var y0 := min_y + float(gy) * step_y
 				var y1 := y0 + step_y
@@ -2146,7 +2007,7 @@ func _build_marching_cubes_arrays(density: PackedFloat32Array,
 				dd[5] = d5
 				dd[6] = d6
 				dd[7] = d7
-				if refine_cell:
+				if _should_refine_mc_cell(surface_hm, river_lookup, res_xz, gx, gz, step_xz, sea):
 					_append_refined_mc_cell(verts, norms, colors, coord, surface_hm, gx, gz, gy,
 						step_xz, step_y, min_y, iso, sea, hs, density, ss, res_xz, res_y)
 				else:
@@ -2167,73 +2028,11 @@ func _build_marching_cubes_arrays(density: PackedFloat32Array,
 
 	# Direct array commit: SurfaceTool's per-vertex calls cost more than
 	# the entire marching-cubes pass above.
-	return _weld_surface(verts, norms, colors)
-
-
-## Index the marching-cubes output by welding duplicate vertices.
-##
-## The raw output is a triangle soup, so every vertex on a shared edge is
-## emitted once per triangle that touches it — roughly a sixfold
-## duplication. At world scale that was the single largest memory consumer
-## in the project: about 3.7 MB per chunk, which reached 1.2 GB by 330
-## chunks and pushed the process into swap.
-##
-## This is lossless. Marching-cubes vertices on a shared edge are computed
-## by the same interpolation from the same corner densities, and both the
-## normal and the vertex colour are functions of position, so duplicates
-## are genuinely identical. The key is snapped only to absorb float
-## ordering differences; the stored vertex is the original.
-func _weld_surface(verts: PackedVector3Array, norms: PackedVector3Array,
-		colors: PackedColorArray) -> Array:
-	var out_verts := PackedVector3Array()
-	var out_norms := PackedVector3Array()
-	var out_colors := PackedColorArray()
-	var indices := PackedInt32Array()
-	indices.resize(verts.size())
-	var seen := {}
-	for i in verts.size():
-		var key := verts[i].snapped(Vector3(0.0001, 0.0001, 0.0001))
-		var slot: int = seen.get(key, -1)
-		if slot < 0:
-			slot = out_verts.size()
-			seen[key] = slot
-			out_verts.append(verts[i])
-			out_norms.append(norms[i])
-			out_colors.append(colors[i])
-		indices[i] = slot
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = out_verts
-	arrays[Mesh.ARRAY_NORMAL] = out_norms
-	arrays[Mesh.ARRAY_COLOR] = out_colors
-	arrays[Mesh.ARRAY_INDEX] = indices
-	return arrays
-
-
-## Convenience wrapper: build the arrays and commit them to an ArrayMesh.
-## Only safe on the main thread; the threaded path keeps the two apart.
-func _build_marching_cubes_mesh(density: PackedFloat32Array,
-		res_xz: int, res_y: int, coord: Vector2i,
-		surface_hm: PackedFloat32Array, river_cells: Array) -> ArrayMesh:
-	return _mesh_from_arrays(_build_marching_cubes_arrays(
-		density, res_xz, res_y, coord, surface_hm, river_cells))
-
-
-## Expand an indexed surface back into the flat triangle list a concave
-## collision shape wants.
-func _faces_from_arrays(arrays: Array) -> PackedVector3Array:
-	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
-	if indices.is_empty():
-		return verts
-	var faces := PackedVector3Array()
-	faces.resize(indices.size())
-	for i in indices.size():
-		faces[i] = verts[indices[i]]
-	return faces
-
-
-func _mesh_from_arrays(arrays: Array) -> ArrayMesh:
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = norms
+	arrays[Mesh.ARRAY_COLOR] = colors
 	var out_mesh := ArrayMesh.new()
 	out_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return out_mesh
@@ -2311,11 +2110,8 @@ func _append_refined_mc_cell(verts: PackedVector3Array, norms: PackedVector3Arra
 				var x1 := x0 + sub_step_xz
 				var z1 := z0 + sub_step_xz
 				var y1 := y0 + sub_step_y
-				var corners: Array[Vector3] = [
-					Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO,
-					Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO,
-				]
-				var dd: Array[float] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+				var corners := _mc_corners_scratch
+				var dd := _mc_dd_scratch
 				corners[0] = Vector3(x0, y0, z0)
 				corners[1] = Vector3(x1, y0, z0)
 				corners[2] = Vector3(x1, y0, z1)
@@ -2706,33 +2502,22 @@ func _recolor_chunk_biomes(coord: Vector2i, biome_map: PackedByteArray) -> void:
 func _create_chunk_collision(coord: Vector2i, mesh_instance: MeshInstance3D) -> void:
 	if not mesh_instance.mesh or mesh_instance.mesh.get_surface_count() == 0:
 		return
-	_create_chunk_collision_from_faces(coord, mesh_instance.mesh.get_faces())
 
-
-## The marching-cubes output is already a triangle soup, so its vertex array
-## IS the collision face list — no need to round-trip it through the mesh.
-func _create_chunk_collision_from_faces(coord: Vector2i, faces: PackedVector3Array) -> void:
 	var body := StaticBody3D.new()
 	body.name = "ChunkBody_%d_%d" % [coord.x, coord.y]
 
+	var shape := ConcavePolygonShape3D.new()
+	var faces := mesh_instance.mesh.get_faces()
 	if faces.is_empty():
 		body.queue_free()
 		return
-	var shape := ConcavePolygonShape3D.new()
 
 	shape.set_faces(faces)
 	var col := CollisionShape3D.new()
 	col.shape = shape
 	body.add_child(col)
 
-	# Same origin the chunk mesh uses — derived from the coord rather than
-	# read off the MeshInstance, so collision can be built without one.
-	var chunk_centre := SharedWorld.chunk_to_world(coord)
-	body.position = Vector3(
-		chunk_centre.x - GameConfig.chunk_size * 0.5,
-		0.0,
-		chunk_centre.z - GameConfig.chunk_size * 0.5
-	)
+	body.position = mesh_instance.position
 	add_child(body)
 	_chunk_bodies[coord] = body
 
@@ -2831,11 +2616,5 @@ func _debug_draw_cave_voids(coord: Vector2i, density: PackedFloat32Array,
 
 
 func _shutdown() -> void:
-	# Never tear down while a worker is still writing into our dictionaries.
-	for task_id in _gen_tasks.values():
-		WorkerThreadPool.wait_for_task_completion(int(task_id))
-	_gen_tasks.clear()
-	_gen_queue.clear()
-	_gen_results.clear()
 	for coord in _chunk_meshes.keys():
 		_remove_chunk_mesh(coord)

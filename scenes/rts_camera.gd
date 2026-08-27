@@ -6,7 +6,7 @@ extends Camera3D
 ## - WASD / arrows: pan
 ## - Mouse wheel: UP pulls the camera out, DOWN moves it in
 ## - Hold RIGHT mouse + move: orbit (left/right) and tilt (down = top-down)
-## - Hold MIDDLE mouse + move: fast drag-pan
+## - Hold LEFT or MIDDLE mouse + move: drag-pan (ground follows cursor)
 ## - Q / E: orbit without the mouse
 ## - Shift: double pan speed
 ##
@@ -41,8 +41,12 @@ extends Camera3D
 @export var invert_rotate := false
 ## Right-drag down tilts toward top-down when false.
 @export var invert_tilt := false
-## Middle-drag grabs the ground and drags it when false.
+## Middle/left-drag grabs the ground and drags it when false.
 @export var invert_drag_pan := false
+
+## Vertical half of the drag-pan, invertible on its own — pushing the mouse
+## away from you moves the view away when false.
+@export var invert_drag_vertical := true
 @export var pan_speed := 26.0
 @export var rotate_speed := 0.22
 @export var zoom_step := 1.18
@@ -78,7 +82,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			_zoom_accumulator -= 1.0
 	elif event is InputEventMouseMotion:
-		if event.button_mask & MOUSE_BUTTON_RIGHT:
+		if event.button_mask & MOUSE_BUTTON_MASK_RIGHT:
 			# Hold-and-drag rotate — the standard RTS camera grip.
 			var yaw_dir := 1.0 if invert_rotate else -1.0
 			var tilt_dir := -1.0 if invert_tilt else 1.0
@@ -86,13 +90,24 @@ func _unhandled_input(event: InputEvent) -> void:
 			_target_pitch = clampf(
 				_target_pitch + event.relative.y * rotate_speed * 0.01 * tilt_dir,
 				min_pitch, max_pitch)
-		elif event.button_mask & MOUSE_BUTTON_MIDDLE:
-			var drag_dir := -1.0 if invert_drag_pan else 1.0
-			var drag := Vector2(event.relative.x, event.relative.y) * 0.014 * drag_dir
+		elif event.button_mask & (MOUSE_BUTTON_MASK_MIDDLE | MOUSE_BUTTON_MASK_LEFT):
+			# Grab-the-ground drag: the world follows the cursor. Bound to
+			# the LEFT button as well as the middle one — "click and drag"
+			# means the primary button to most people, and it was previously
+			# unbound, so left-dragging did nothing at all.
+			var drag_dir := 1.0 if invert_drag_pan else -1.0
+			var drag_v := -1.0 if invert_drag_vertical else 1.0
+			var drag := Vector2(event.relative.x, event.relative.y * drag_v) \
+				* 0.014 * drag_dir
 			_pan_target(drag)
 
 
 func _process(delta: float) -> void:
+	# The camera runs on UNSCALED time. Engine.time_scale slows the world on
+	# purpose, but a camera that pans and zooms at half speed just feels
+	# broken, so undo the scaling for the rig only.
+	delta /= maxf(Engine.time_scale, 0.001)
+
 	# Zoom accumulates per event; apply smoothly each frame.
 	if absf(_zoom_accumulator) > 0.001:
 		_target_distance = clampf(

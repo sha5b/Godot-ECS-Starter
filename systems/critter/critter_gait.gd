@@ -49,6 +49,10 @@ var _time := 0.0
 ## are IK-adapted to the terrain after the gait pose is evaluated.
 var ground_sampler := Callable()
 
+## Which way the knee folds in the IK solve. The rig's knees bend backwards
+## (foot trails the hip), so the hip aims ahead of the target direction.
+const IK_ELBOW_SIGN := -1.0
+
 ## Foot nodes and the leg segment lengths the IK solves against, captured
 ## by the builder alongside the joints.
 var _feet: Array[Node3D] = []
@@ -222,45 +226,92 @@ func tick(delta: float, speed_ratio: float) -> void:
 func _adapt_legs_to_ground() -> void:
 	if _feet.size() != _hips.size() or _upper_len <= 0.0:
 		return
-	var reach := _upper_len + _lower_len
 	for i in _hips.size():
 		var hip := _hips[i]
-		var knee := _knees[i]
 		var foot := _feet[i]
-		if hip == null or knee == null or foot == null or not foot.is_inside_tree():
+		if hip == null or foot == null or not foot.is_inside_tree():
 			continue
-		var foot_world := foot.global_position
-		var ground: float = ground_sampler.call(foot_world.x, foot_world.z)
+		var ground: float = ground_sampler.call(foot.global_position.x, foot.global_position.z)
 		if not is_finite(ground):
 			continue
-		# Keep the gait's own lift above the terrain, not above the plane.
+		# Keep whatever lift the gait asked for, measured from the terrain
+		# rather than from a flat plane.
 		var lift_gain: float = _leg_lift[i] * _lower_len * 0.35
 		var target_y := ground + _foot_contact + lift_gain
-		var target := Vector3(foot_world.x, target_y, foot_world.z)
+		# Two stages, because one joint is not enough: the knee sets how FAR
+		# the foot is from the hip, the hip pitch then swings that reach onto
+		# the target height. Solving only the pitch leaves the foot on a
+		# fixed-radius arc that need not pass through the target at all.
+		# Two passes: pitching the hip moves the foot, which changes how far
+		# the target is, which changes the knee. Two rounds converge; more
+		# buys nothing measurable.
+		for _pass in 2:
+			_solve_knee_reach(_knees[i], hip, foot, target_y)
+			_solve_hip_pitch(hip, foot, target_y)
 
-		# Solve in the hip's parent frame: the hip pitches to aim at the
-		# target and the knee closes to match the remaining distance.
-		var parent := hip.get_parent() as Node3D
-		if parent == null:
-			continue
-		var local: Vector3 = parent.global_transform.affine_inverse() * target
-		local -= hip.position
-		var dist := clampf(local.length(),
-			absf(_upper_len - _lower_len) + 0.01, reach - 0.01)
-		if dist <= 0.001:
-			continue
-		# Law of cosines for the knee, then aim the whole leg at the target.
-		var cos_knee := clampf(
-			(_upper_len * _upper_len + _lower_len * _lower_len - dist * dist)
-			/ (2.0 * _upper_len * _lower_len), -1.0, 1.0)
-		var knee_bend := PI - acos(cos_knee)
-		var cos_hip := clampf(
-			(_upper_len * _upper_len + dist * dist - _lower_len * _lower_len)
-			/ (2.0 * _upper_len * dist), -1.0, 1.0)
-		# Leg hangs down -Y; measure the aim angle in the hip's YZ plane.
-		var aim := atan2(local.z, -local.y)
-		hip.rotation.x = aim - acos(cos_hip)
-		knee.rotation.x = knee_bend
+
+## Close or open the knee until the hip-to-foot distance matches how far
+## the target actually is. Monotonic — folding the knee always brings the
+## foot nearer the hip — so a plain bisection is enough.
+func _solve_knee_reach(knee: Node3D, hip: Node3D, foot: Node3D, target_y: float) -> void:
+	if knee == null:
+		return
+	var hip_pos := hip.global_position
+	var want: float = Vector3(foot.global_position.x, target_y,
+		foot.global_position.z).distance_to(hip_pos)
+	var base := knee.rotation
+	var lo := 0.0
+	var hi := PI * 0.85
+	for _iter in 7:
+		var mid := (lo + hi) * 0.5
+		knee.rotation = Vector3(mid, base.y, base.z)
+		if foot.global_position.distance_to(hip_pos) > want:
+			lo = mid
+		else:
+			hi = mid
+	knee.rotation = Vector3((lo + hi) * 0.5, base.y, base.z)
+
+
+## Pitch one hip so its foot reaches `target_y`, by search rather than by
+## a closed form.
+##
+## An analytic two-bone solve looked right and was wrong: Node3D uses YXZ
+## Euler order, so a hip's rotation composes as Ry * Rx * Rz and the fixed
+## outward splay on Z is applied AFTER the pitch on X. The limb therefore
+## does not swing in the plane a planar solver assumes, and every splayed
+## leg came out 6-16 cm off. Searching the one axis we actually control
+## sidesteps the whole issue and is exact to the sample resolution.
+##
+## Coarse sweep first so it cannot be fooled by the non-monotonic tails of
+## the reach curve, then a short bisection inside the winning bracket.
+func _solve_hip_pitch(hip: Node3D, foot: Node3D, target_y: float) -> void:
+	var base := hip.rotation
+	var best := base.x
+	var best_err := INF
+	const SPAN := 1.3
+	const COARSE := 7
+	for c in COARSE:
+		var angle := base.x - SPAN + 2.0 * SPAN * float(c) / float(COARSE - 1)
+		hip.rotation = Vector3(angle, base.y, base.z)
+		var err := absf(foot.global_position.y - target_y)
+		if err < best_err:
+			best_err = err
+			best = angle
+	var step := 2.0 * SPAN / float(COARSE - 1)
+	var lo := best - step
+	var hi := best + step
+	for _iter in 4:
+		var mid_lo := lo + (hi - lo) * 0.33
+		var mid_hi := lo + (hi - lo) * 0.67
+		hip.rotation = Vector3(mid_lo, base.y, base.z)
+		var err_lo := absf(foot.global_position.y - target_y)
+		hip.rotation = Vector3(mid_hi, base.y, base.z)
+		var err_hi := absf(foot.global_position.y - target_y)
+		if err_lo < err_hi:
+			hi = mid_hi
+		else:
+			lo = mid_lo
+	hip.rotation = Vector3((lo + hi) * 0.5, base.y, base.z)
 
 
 ## The torso skinner this gait re-skins (set by the builder; tests and
