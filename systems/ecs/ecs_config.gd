@@ -10,6 +10,12 @@ extends Node
 @export var ai_enabled := true
 @export var chemistry_enabled := true
 @export var vitality_enabled := true
+
+## Carnivores hunt prey species, and prey run from them.
+@export var predation_enabled := true
+
+## Herds, flocks, shoals and packs steer with their neighbours.
+@export var flocking_enabled := true
 @export var view_sync_enabled := true
 
 ## Tier distances from the focus (camera/player), BotW A/B/C style.
@@ -28,6 +34,20 @@ extends Node
 @export var ai_sensor_range := 24.0
 @export var ai_threat_range := 7.0
 
+@export_group("Predation")
+## How far a hunter senses prey.
+@export var predation_hunt_range := 30.0
+
+## How far prey senses a hunter. Longer than hunt range on purpose — being
+## seen first is what gives prey a chance.
+@export var predation_flee_range := 34.0
+
+## Reach of a bite, in world units.
+@export var predation_bite_range := 1.6
+
+## Damage per bite, before the hunter's body-mass scaling.
+@export var predation_bite_damage := 3.5
+
 @export_group("World Population")
 ## Spawn ECS actors from the generated world (chemistry grass + critters
 ## per loaded chunk). Disable in scenes that spawn their own content.
@@ -37,8 +57,13 @@ extends Node
 ## the foliage renderer reacts to (fire spreads through the visible grass).
 @export var chemistry_grass_per_chunk := 48
 
-## Foraging critters per chunk (visible utility-AI agents).
-@export var critters_per_chunk := 3
+## Per-chunk spawn budget for animals.
+##
+## This is a budget, not a count: each attempt picks a species that suits the
+## biome and still has room under its own FaunaEntry.max_per_chunk, so the mix
+## follows the authored content. Raised from 3 now that the ECS is the only
+## thing spawning animals — FaunaSystem used to place its own on top.
+@export var critters_per_chunk := 8
 
 ## Berry bushes per chunk — edible targets for the foraging loop.
 @export var berries_per_chunk := 6

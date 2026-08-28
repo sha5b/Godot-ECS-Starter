@@ -35,13 +35,19 @@ func best_action(blackboard: Dictionary) -> UtilityAction:
 
 
 static func critter_brain() -> UtilityBrain:
-	## A foraging animal: eats, wanders, rests, and panics around fire —
-	## the emergent "grass fire chases critters" BotW moment.
+	## A foraging animal: eats, wanders, rests, panics around fire, and runs
+	## from anything that hunts it.
 	var brain := UtilityBrain.new()
 	brain.actions = [
 		_make(&"panic",
 			[[Consideration.SensorInput.FIRE_PROXIMITY, Consideration.ResponseCurve.STEP, {}]],
 			0.9, true),
+		# Above flee and below panic: a predator outranks the camera, fire
+		# outranks everything. Interrupt, because prey that finishes its
+		# current action before reacting is prey that gets eaten.
+		_make(&"evade",
+			[[Consideration.SensorInput.PREDATOR_PROXIMITY, Consideration.ResponseCurve.POLYNOMIAL, {"exponent": 1.6}]],
+			0.85, true),
 		_make(&"flee",
 			[[Consideration.SensorInput.THREAT_PROXIMITY, Consideration.ResponseCurve.POLYNOMIAL, {"exponent": 2.0}]],
 			0.4),
@@ -61,6 +67,55 @@ static func critter_brain() -> UtilityBrain:
 			0.2),
 	]
 	return brain
+
+
+static func predator_brain() -> UtilityBrain:
+	## A hunter. Everything the forager does, plus hunting — and its hunger
+	## drives it toward prey rather than toward plants.
+	##
+	## Hunting is scored by hunger AND prey proximity, so a fed predator
+	## ignores a herd it is standing in. That is what stops a wolf lineage
+	## from clearing a map: predation is bounded by appetite, not opportunity.
+	var brain := UtilityBrain.new()
+	brain.actions = [
+		_make(&"panic",
+			[[Consideration.SensorInput.FIRE_PROXIMITY, Consideration.ResponseCurve.STEP, {}]],
+			0.9, true),
+		_make(&"hunt",
+			[
+				[Consideration.SensorInput.HUNGER, Consideration.ResponseCurve.POLYNOMIAL, {"exponent": 1.4}],
+				[Consideration.SensorInput.PREY_PROXIMITY, Consideration.ResponseCurve.LINEAR, {}],
+			],
+			0.8),
+		_make(&"evade",
+			[[Consideration.SensorInput.PREDATOR_PROXIMITY, Consideration.ResponseCurve.POLYNOMIAL, {"exponent": 1.6}]],
+			0.7, true),
+		_make(&"seek_food",
+			[
+				[Consideration.SensorInput.HUNGER, Consideration.ResponseCurve.POLYNOMIAL, {"exponent": 2.0}],
+				[Consideration.SensorInput.FOOD_PROXIMITY, Consideration.ResponseCurve.LINEAR, {}],
+			],
+			0.25),
+		_make(&"rest",
+			[[Consideration.SensorInput.ENERGY, Consideration.ResponseCurve.INVERSE, {}]],
+			0.25),
+		_make(&"wander",
+			[[Consideration.SensorInput.CONSTANT, Consideration.ResponseCurve.LINEAR, {"weight": 0.4}]],
+			0.2),
+	]
+	return brain
+
+
+## The brain a species should use.
+##
+## A predator brain needs something to hunt, not just a carnivorous diet — an
+## omnivore with an empty prey list is a forager, and giving it `hunt` only
+## means scoring an action that can never fire. Measured: 29 of 63 animals
+## carried a predator brain when only 8 of them had any prey.
+static func for_record(record: SpeciesRecord) -> UtilityBrain:
+	if record != null and record.is_carnivore() and not record.prey.is_empty():
+		return predator_brain()
+	return critter_brain()
 
 
 static func _make(action_name: StringName, spec: Array, base: float,

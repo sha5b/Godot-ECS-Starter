@@ -324,3 +324,62 @@ func test_species_survives_many_generations_before_splitting() -> void:
 	assert_true(births > 20, "test setup: expected a breeding population, got %d" % births)
 	assert_true(splits * 4 < births,
 		"speciation must stay rare: %d splits from %d births" % [splits, births])
+
+
+# ── Bookkeeping must not grow without bound ─────────────────────────────────
+
+
+func test_extinct_lineages_are_pruned() -> void:
+	# A world left running breeds continuously, and every split minted a
+	# record holding a full genome that nothing ever removed. Measured in one
+	# probe: 1057 records from 1558 births.
+	var entry := _entry(&"deer")
+	var registry := _registry_with(entry)
+	var parent := registry.get_record(&"deer")
+	for i in 5:
+		var drifted := CritterGenome.new(parent.founder)
+		drifted.mutate(_rng(100 + i), 2.0)
+		registry.speciate(parent, drifted, i)
+	assert_equal(registry.count(), 6, "test setup: five splits plus the founder")
+
+	# Only one of the five lineages still has a member alive.
+	var survivor: StringName = registry.lineages_of(&"deer")[3]
+	var living := {survivor: true}
+	var pruned := registry.prune_extinct(living)
+	assert_equal(pruned, 4, "the four lineages with no members must be dropped")
+	assert_equal(registry.count(), 2, "the survivor and the founder remain")
+	assert_not_null(registry.get_record(survivor))
+	assert_not_null(registry.get_record(&"deer"),
+		"a founding species is content and is never pruned, even at zero members")
+	assert_equal(registry.lineages_of(&"deer").size(), 2,
+		"the per-root lineage list must shrink with the records")
+
+
+func test_breeding_age_bookkeeping_follows_the_living_population() -> void:
+	# Ages were only ever added, so every animal that had ever existed left a
+	# permanent entry. With chunk streaming despawning constantly, that grew
+	# for as long as the game ran — measured climbing to 293 entries while the
+	# world held zero animals.
+	var entry := _entry(&"deer")
+	var registry := _registry_with(entry)
+	var world := EcsWorld.new()
+	var rng := _rng(88)
+	var spawned: Array[int] = []
+	for i in 6:
+		spawned.append(_spawn_member(world, registry, entry, rng, Vector3(i * 40.0, 0, 0)))
+	world.flush_commands()
+
+	var breeding := _breeding_for(registry)
+	breeding.partner_radius = 0.5  # far apart, so nothing breeds and the count is exact
+	for frame in 12:
+		breeding.tick(world, 0.1, frame)
+		world.flush_commands()
+	assert_equal(breeding._age.size(), 6, "one entry per living animal")
+
+	for entity in spawned:
+		world.despawn(entity)
+	for frame in 12:
+		breeding.tick(world, 0.1, frame)
+		world.flush_commands()
+	assert_equal(breeding._age.size(), 0,
+		"ages must follow the living population, not accumulate history")

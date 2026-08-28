@@ -12,8 +12,8 @@ this pass; items marked **OPEN** are diagnosed but not done.
 
 ## 1. The central problem: two actor runtimes
 
-**STEP 1 DONE — see §1a. The rest is still OPEN, and is the finding that
-matters most.**
+**RESOLVED for animals — see §1a and §1b. Vegetation is still split; shelters,
+tribes and territories still have no ECS equivalent.**
 
 The project contains two complete, unconnected implementations of "living
 things in the world":
@@ -63,6 +63,9 @@ spawner and view layer, in this order:
 
 Every step is independently shippable, and each one deletes more code than it
 adds. Do not start it without step 1 — `CSpecies` is what makes the rest cheap.
+
+**All five steps are now done.** §1a covers step 1 and the genetics bug it
+uncovered; §1b covers steps 2, 3 and 5.
 
 ---
 
@@ -137,12 +140,103 @@ rule, prey lists surviving speciation, and breeding through the ECS. The suite
 went from 77 to 93 tests. `test_breeding_produces_offspring` asserts zero
 births against the old behaviour, so the original bug cannot come back quietly.
 
-### Still open from step 1
+Steps 2, 3 and 5 followed — see §1b.
 
-`CSpecies` now carries diet and prey lists into the ECS, but nothing consumes
-them yet — `PredationSystem` (step 2) and `FlockingSystem` (step 3) are the
-next pieces. Until then, predator/prey and group behaviour still only exist in
-`FaunaSystem`.
+---
+
+## 1b. Predation, herds, and one simulation instead of two
+
+**FIXED.** Steps 2, 3 and 5 of the migration.
+
+### What was built
+
+- **`EcsActorIndex`** — one spatial grid over living actors, rebuilt on a
+  coarse timer. Predation and flocking ask the same question ("which animals
+  are near this one, and what are they?"), and would otherwise each build and
+  refill their own grid every tick.
+- **`PredationSystem`** — resolves the bites the AI committed to, then senses
+  prey and predators for next frame. Runs after the AI, because the AI writes
+  INTENT and a system resolves it — the same split as the AI writing velocity
+  and `MovementSystem` integrating it. Putting the damage rules in the brain
+  would make every new predator behaviour a rules change.
+- **`CGroup` + `FlockingSystem`** — Reynolds' three rules over the shared
+  index. Groups are not authored rosters; they are whatever same-species
+  animals happen to be near each other.
+- **`hunt` and `evade` actions**, plus `PREY_PROXIMITY` / `PREDATOR_PROXIMITY`
+  sensor inputs and a `predator_brain()` chosen from the species' diet.
+- **Ecology authored into the nine content scenes** — diets, prey lists, body
+  archetypes and herd weights. They were all at defaults, so predation and
+  flocking would have had nothing to act on.
+
+### Two design errors worth recording
+
+**Hunting had to be bounded by appetite, not opportunity.** `hunt` is scored
+by hunger AND prey proximity, so a fed predator ignores a herd it is standing
+in. Scored on proximity alone, one wolf lineage clears the map.
+
+**Breaking formation had to be absolute.** The first version scaled flocking
+influence down to 15% for fleeing animals. That is not enough: the blend
+converges on its steering target, so even a small correction applied every
+tick eventually turns the animal round. Measured — an animal sprinting away
+from its herd at 4 m/s was down to 1 m/s and still turning after two seconds.
+A deer that cannot leave its herd cannot escape a wolf. Animals in `panic`,
+`evade` or `flee` now skip flocking entirely.
+
+A third bug nearly shipped silently: a flocking test passed while flocking was
+not running at all, because it compared a `float32` velocity component against
+the same value as a `float64` literal. The assertion now uses a margin.
+
+### One population
+
+`FaunaConfig.simulate_locally` defaults to **off**. FaunaSystem is the content
+library and the ECS spawns from its entries — biome-gated, honouring each
+entry's `max_per_chunk`, weighted by `spawn_weight`. Measured in the live
+world: one population of 14 animals across 5 species where there used to be
+two populations ignoring each other.
+
+`FaunaEntry.use_procedural_body` picks the look per species: the genome-driven
+body, so evolution is visible, or the mesh children authored in the scene.
+
+### Coverage
+
+`tests/unit/test_ecology.gd` — 12 tests over prey sensing, prey lists
+surviving speciation, bite reach and cooldown, kill events, predator and prey
+decision-making, herd cohesion and separation, species-exclusive herds, and
+formation breaking. Suite: 77 → **107**.
+
+### Two unbounded dictionaries
+
+Found by streaming chunks in a loop and printing what kept growing
+(`.qa/leak_probe.gd`), after a report of memory climbing in a long session:
+
+```
+[leak] round 1  entities=1452 animals=199  breeding_age=199
+[leak] round 2  entities=716  animals=94   breeding_age=293
+[leak] round 3  entities=0    animals=0    breeding_age=293   <-- never falls
+```
+
+- **`BreedingSystem._age`** was only ever added to, so every animal that had
+  ever existed left a permanent entry. Chunk streaming despawns and respawns
+  constantly, so it grew for as long as the game ran. Now rebuilt from the
+  living population each pass. (Pre-existing, not introduced by this work.)
+- **`SpeciesRegistry`** never dropped a lineage. Every split minted a record
+  holding a full genome, and one probe run produced 1057 records from 1558
+  births. Extinct lineages are now pruned on the stats tick; founding species
+  from content are never pruned, since a biome the camera has not visited yet
+  legitimately has none of them alive.
+
+Everything else recycled correctly — entity count, view nodes and view
+bindings all returned to zero when the loaded field was streamed away.
+
+`test_extinct_lineages_are_pruned` and
+`test_breeding_age_bookkeeping_follows_the_living_population` lock both down.
+
+### Still open
+
+Shelters, tribes, territories and buildings are driven by FaunaSystem's local
+simulation and go dormant while `simulate_locally` is off. They have no ECS
+equivalent — that is the next migration, and the flag flips back in one
+inspector click until it exists.
 
 ---
 
@@ -602,7 +696,7 @@ ground colour disagreed with the flora standing on it.
 
 ## Verification
 
-- `godot --headless --path . --script tests/run_tests.gd` — **93 passed, 0 failed**
+- `godot --headless --path . --script tests/run_tests.gd` — **107 passed, 0 failed**
 - `godot --headless --path . res://scenes/main.tscn` — clean, no script or
   shader errors
 - `.qa/height_profile.gd` — elevation, slope, and belt-coverage statistics
@@ -611,6 +705,9 @@ ground colour disagreed with the flora standing on it.
 - `.qa/shore_shot.gd`, `.qa/river_shot.gd` — fixed-seed visual comparison shots
 - `.qa/evolution_probe.gd` — drives breeding headless and reports births,
   splits and lineage depth over thousands of generations
+- `.qa/species_live.gd`, `.qa/ecology_fps.gd` — the live world's species mix,
+  frame cost and predation activity
+- `.qa/leak_probe.gd` — streams chunks in a loop and prints what keeps growing
 
 The `.qa` scripts are the point, not the numbers they printed once. Every
 finding above that says "measured" was measured with one of them, and they will

@@ -24,6 +24,15 @@ roughness = 0.85
 [node name="Bat" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"bat"
+genome_archetype = "glider"
+genome_variance = 0.6
+speciation_distance = 0.3
+diet = &"omnivore"
+flocking = true
+flock_separation = 0.8
+flock_alignment = 1.0
+flock_cohesion = 0.85
+flock_radius = 9.0
 spawn_weight = 2.0
 max_per_chunk = 3
 min_height = 0.01

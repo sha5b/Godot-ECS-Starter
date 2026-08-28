@@ -22,12 +22,22 @@ EcsSystem (BaseSystem bridge, drop-in under World or standalone)
 └── EcsWorld                     entities, stores, queries, events, commands
     └── EcsScheduler             ordered phases + per-system profiling
         ├── EARLY  TierSystem        distance-based tier assignment
+        ├── EARLY  EcsActorIndex     shared neighbour grid, coarse timer
         ├── SIM    MovementSystem    integrates velocity
         ├── SIM    UtilityAISystem   sense -> decide -> act
+        ├── SIM    PredationSystem   resolve bites, sense prey/predators
+        ├── SIM    FlockingSystem    herd steering, corrects the AI
         ├── SIM    ChemistrySystem   elements × materials simulation
         ├── SIM    VitalitySystem    deaths + expired lifetimes
+        ├── SIM    BreedingSystem    crossover, mutation, speciation
         └── VIEW   ViewSyncSystem    mirrors data onto EntityView nodes
 ```
+
+Predation and flocking both run AFTER the AI, and both act on what it decided:
+the AI commits to a target and closes on it, `PredationSystem` decides whether
+the bite lands; the AI sets a velocity, `FlockingSystem` corrects it. That is
+the same intent/resolution split as the AI writing velocity and
+`MovementSystem` integrating it.
 
 Command buffer flushes happen at phase boundaries so each phase sees a
 consistent structure — the same sync-point discipline BotW uses between
@@ -53,6 +63,7 @@ sparse-set stores keyed by `COMPONENT_ID`:
 - `CSpecies` — which species an actor belongs to, its generation, and how far
   it has drifted from the species body plan
 - `CGenome` — the procedural body plan and the stats derived from it
+- `CGroup` — herd steering weights, and the neighbours found last tick
 
 ### Queries
 `world.query([&"CTransform", &"CElemental"])` returns a live cache that
@@ -170,6 +181,58 @@ Events: `critter_bred` and `species_split`, both bridged to
 > spawned critters found twelve distinct species names. `tests/unit/test_species.gd`
 > locks the fix down.
 
+## Predation and herds
+
+`FaunaEntry` authors the ecology and the ECS runs it:
+
+```text
+diet = "carnivore"                    →  UtilityBrain.predator_brain()
+prey_names = ["rabbit", "bird"]       →  SpeciesRecord.hunts()
+flocking = true + flock_* weights     →  CGroup on every member
+```
+
+**Hunting** is scored by hunger AND prey proximity, so a fed predator ignores
+a herd it is standing in — predation is bounded by appetite, not opportunity,
+which is what stops one wolf lineage clearing a map. Bite damage scales with
+the hunter's `body_mass()`, so a lineage that evolves bulk really does become
+more dangerous.
+
+**Evading** uses the prey's own `derived_flee_multiplier`, which comes from
+stride amplitude and gait cycle. An animal that evolves a bouncier gait
+genuinely escapes more often — that is the selection pressure predation is
+there to apply.
+
+**Herds** are not authored rosters. They are whatever same-species animals are
+near each other, recomputed from the shared `EcsActorIndex`. Separation,
+alignment and cohesion correct the AI's velocity rather than replacing it, and
+an animal in `panic`, `evade` or `flee` leaves the herd entirely — scaling the
+influence down is not enough, because a small correction applied every tick
+still converges. Measured: an animal sprinting away at 4 m/s was down to
+1 m/s and still turning after two seconds of "reduced" flocking.
+
+Prey lists name the **root FaunaEntry**, so a deer lineage that has split three
+ways is still hunted by everything that hunts deer.
+
+Events: `predation.attacked` and `predation.killed`.
+
+## One simulation, not two
+
+`FaunaConfig.simulate_locally` is **off** by default. FaunaSystem is the
+content library — `get_entries()` — and the ECS spawns from those entries,
+biome-gated, honouring each entry's `max_per_chunk`. Turn it on to restore
+FaunaSystem's own node-based simulation; running both is what the project used
+to do, and it put two populations of animals in the same fields ignoring each
+other.
+
+`FaunaEntry.use_procedural_body` chooses what a species looks like: the
+genome-driven procedural body (evolution is visible) or the mesh children
+authored in the content scene (the art wins). Either way it breeds, evolves,
+and derives its stats from its genome.
+
+> **Still open.** Shelters, tribes, territories and buildings are driven by the
+> local simulation and go dormant while `simulate_locally` is off. They have no
+> ECS equivalent yet.
+
 ## Tiered processing (BotW A/B/C profiles)
 
 | Tier | Cadence | Typical range |
@@ -212,8 +275,8 @@ ticks itself when not under a `World` root.
 ## Testing
 
 - Unit tests: `godot --headless --path . --script tests/run_tests.gd`
-  (93 tests over world, queries, commands, chemistry, AI, scheduler, species
-  identity, heredity and speciation)
+  (105 tests over world, queries, commands, chemistry, AI, scheduler, species
+  identity, heredity, speciation, predation and flocking)
 - Visual integration test: open
   `res://tests/visual/ecs_visual_test.tscn` and press play, or run it
   headless — it drives a scripted scenario (fire spread → panic → rain →

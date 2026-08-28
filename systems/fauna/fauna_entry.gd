@@ -58,8 +58,20 @@ extends Node3D
 ## Speed multiplier when fleeing
 @export var flee_speed_multiplier: float = 2.0
 
-## Whether this animal uses flocking behavior
+## Whether this animal moves in a herd, flock, shoal or pack.
 @export var flocking: bool = false
+
+## How hard herd members keep their distance from each other.
+@export_range(0.0, 3.0) var flock_separation: float = 1.0
+
+## How hard they match each other's heading.
+@export_range(0.0, 3.0) var flock_alignment: float = 0.6
+
+## How hard they pull toward the middle of the group.
+@export_range(0.0, 3.0) var flock_cohesion: float = 0.5
+
+## Radius within which same-species animals count as herd neighbours.
+@export_range(1.0, 40.0) var flock_radius: float = 9.0
 
 ## Whether this fauna is aquatic (spawns in water, not on land)
 @export var aquatic: bool = false
@@ -130,6 +142,15 @@ extends Node3D
 @export var health_max: float = 1.0
 
 @export_group("Genetics")
+## Draw this species with the procedural genome body instead of the mesh
+## children authored in this scene.
+##
+## Procedural bodies are what make evolution visible — a lineage that evolves
+## longer legs looks like it. Turn it off for a species whose authored art
+## matters more than showing its genes; it still breeds, evolves and derives
+## its stats from the genome either way.
+@export var use_procedural_body: bool = true
+
 ## Give this species procedural, heritable bodies.
 ##
 ## When on, animals of this type spawn with a CGenome sampled around the

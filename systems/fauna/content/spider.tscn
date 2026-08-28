@@ -25,6 +25,12 @@ roughness = 0.75
 [node name="Spider" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"spider"
+genome_archetype = "pouncer"
+genome_variance = 0.6
+speciation_distance = 0.34
+diet = &"carnivore"
+is_predator = true
+prey_names = Array[StringName]([&"bird", &"bat"])
 spawn_weight = 1.5
 max_per_chunk = 2
 min_height = 0.01

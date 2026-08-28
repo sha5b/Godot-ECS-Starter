@@ -23,6 +23,15 @@ roughness = 0.35
 [node name="Fish" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"fish"
+genome_archetype = "serpent"
+genome_variance = 0.5
+speciation_distance = 0.3
+diet = &"herbivore"
+flocking = true
+flock_separation = 0.7
+flock_alignment = 1.2
+flock_cohesion = 1.0
+flock_radius = 6.0
 spawn_weight = 3.5
 max_per_chunk = 5
 scale_min = 0.9

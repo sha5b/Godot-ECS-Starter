@@ -17,6 +17,8 @@ enum SensorInput {
 	THREAT_PROXIMITY,  ## close threat -> 1
 	FOOD_PROXIMITY,  ## close food -> 1
 	FIRE_PROXIMITY,  ## close fire -> 1
+	PREY_PROXIMITY,  ## close huntable animal -> 1 (written by PredationSystem)
+	PREDATOR_PROXIMITY,  ## close animal that hunts me -> 1
 	IS_FROZEN,
 	IS_BURNING,
 	CONSTANT,

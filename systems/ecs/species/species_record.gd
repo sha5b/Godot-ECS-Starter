@@ -37,6 +37,14 @@ var speciation_distance: float = 0.42
 ## Mutation strength for this lineage's offspring.
 var mutation_rate: float = 1.0
 
+## Does this species move in groups, and how tightly?
+## Sourced from FaunaEntry, inherited by every lineage that splits off.
+var flocks: bool = false
+var flock_separation: float = 1.0
+var flock_alignment: float = 0.6
+var flock_cohesion: float = 0.5
+var flock_radius: float = 9.0
+
 ## How many splits deep this lineage is. 0 for a founding species.
 var depth: int = 0
 

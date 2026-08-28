@@ -22,6 +22,9 @@ var _split_counts: Dictionary = {}
 ## before their child can found a new species. See should_speciate().
 var lineage_commitment := 0.75
 
+## Lifetime count of lineages that died out and were dropped.
+var _pruned_total := 0
+
 
 func has(id: StringName) -> bool:
 	return _records.has(id)
@@ -62,6 +65,11 @@ func register_founder(entry: FaunaEntry, world_seed: int) -> SpeciesRecord:
 	record.prey = entry.prey_names.duplicate()
 	record.speciation_distance = entry.speciation_distance
 	record.mutation_rate = entry.genome_mutation_rate
+	record.flocks = entry.flocking
+	record.flock_separation = entry.flock_separation
+	record.flock_alignment = entry.flock_alignment
+	record.flock_cohesion = entry.flock_cohesion
+	record.flock_radius = entry.flock_radius
 	_store(record)
 	return record
 
@@ -89,6 +97,13 @@ func speciate(parent: SpeciesRecord, child_genome: CritterGenome,
 	record.prey = parent.prey.duplicate()
 	record.speciation_distance = parent.speciation_distance
 	record.mutation_rate = parent.mutation_rate
+	# Herding is a species trait, so it survives a split. A deer lineage that
+	# splits off is still a herd animal.
+	record.flocks = parent.flocks
+	record.flock_separation = parent.flock_separation
+	record.flock_alignment = parent.flock_alignment
+	record.flock_cohesion = parent.flock_cohesion
+	record.flock_radius = parent.flock_radius
 	record.depth = parent.depth + 1
 	record.founded_generation = generation
 	_store(record)
@@ -145,6 +160,33 @@ func _store(record: SpeciesRecord) -> void:
 		_split_counts[record.root_entry] = 1
 
 
+## Drop split-off lineages that have no living members.
+##
+## Every speciation event mints a record holding a full genome, and nothing
+## ever removed them: a world left running breeds continuously, so the
+## registry grew without bound for as long as the game was open. Measured in
+## one probe run: 1057 records from 1558 births.
+##
+## Founding species — the ones that came from FaunaEntry content — are never
+## pruned. They are the content, and a biome the camera has not visited yet
+## legitimately has none of them alive.
+func prune_extinct(living_ids: Dictionary) -> int:
+	var doomed: Array[StringName] = []
+	for id in _records:
+		var record: SpeciesRecord = _records[id]
+		if record.depth == 0:
+			continue  # a founding species, from content
+		if not living_ids.has(id):
+			doomed.append(id)
+	for id in doomed:
+		var record: SpeciesRecord = _records[id]
+		_records.erase(id)
+		var siblings: Array = _by_root.get(record.root_entry, [])
+		siblings.erase(id)
+	_pruned_total += doomed.size()
+	return doomed.size()
+
+
 ## Compact stats for HUDs and tests.
 func stats() -> Dictionary:
 	var deepest := 0
@@ -154,4 +196,5 @@ func stats() -> Dictionary:
 		"species": _records.size(),
 		"roots": _by_root.size(),
 		"deepest_split": deepest,
+		"extinct_pruned": _pruned_total,
 	}

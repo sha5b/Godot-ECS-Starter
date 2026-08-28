@@ -33,6 +33,12 @@ var tiers := TierSystem.new()
 var vitality := VitalitySystem.new()
 var view_sync := ViewSyncSystem.new()
 var breeding := BreedingSystem.new()
+var predation := PredationSystem.new()
+var flocking := FlockingSystem.new()
+
+## Shared neighbour index. Predation and flocking ask the same spatial
+## question, so they share one grid rebuilt on a coarse timer.
+var actor_index := EcsActorIndex.new()
 
 ## The world's species — founding types from FaunaEntry content, plus every
 ## lineage that has split off since. Read by HUDs and content systems.
@@ -99,6 +105,24 @@ func _initialize() -> void:
 	# Right after movement: velocity integration is planar, so actors need
 	# re-seating on the surface before anything reads their position.
 	scheduler.register(&"grounding", _ground_agents, EcsScheduler.Phase.SIM, 25)
+	# The shared neighbour index is rebuilt before anything queries it.
+	scheduler.register(&"actor_index", _tick_actor_index, EcsScheduler.Phase.EARLY, 20)
+	if _config.predation_enabled:
+		predation.registry = species
+		predation.index = actor_index
+		predation.hunt_range = _config.predation_hunt_range
+		predation.flee_range = _config.predation_flee_range
+		predation.bite_range = _config.predation_bite_range
+		predation.bite_damage = _config.predation_bite_damage
+		# After the AI: the AI commits to a target and closes on it, this
+		# decides whether the bite lands.
+		scheduler.register(&"predation", predation.tick, EcsScheduler.Phase.SIM, 35)
+	if _config.flocking_enabled:
+		flocking.index = actor_index
+		# After the AI too, because flocking CORRECTS the AI's velocity
+		# rather than replacing it — a herd that steers before its members
+		# have decided anything cannot flee.
+		scheduler.register(&"flocking", flocking.tick, EcsScheduler.Phase.SIM, 37)
 	if _config.view_sync_enabled:
 		scheduler.register(&"view_sync", view_sync.tick, EcsScheduler.Phase.VIEW, 70)
 
@@ -130,6 +154,7 @@ func system_process(delta: float) -> void:
 		world.refresh_stats()
 		var stats := world.stats.duplicate(true)
 		stats["system_times_us"] = scheduler.system_times.duplicate()
+		_prune_extinct_species()
 		stats["species"] = species.stats()
 		SharedWorld.ecs_stats = stats
 
@@ -237,23 +262,34 @@ func _ensure_species_registered() -> void:
 			% [species.count(), str(species.ids())])
 
 
-## Pick a fauna type that belongs in this biome, weighted by spawn weight.
-func _pick_species_entry(biome_name: StringName) -> FaunaEntry:
+## Pick a fauna type that belongs in this biome and has not filled its quota.
+##
+## `spawned` counts what this chunk has placed so far, so FaunaEntry's authored
+## max_per_chunk is respected — otherwise one heavy-weighted species takes the
+## whole chunk budget and a plain ends up holding nothing but rabbits.
+func _pick_species_entry(biome_name: StringName, spawned: Dictionary) -> FaunaEntry:
 	var total := 0.0
 	for entry in _spawnable_entries:
-		if entry.is_allowed_in_biome(biome_name):
+		if _entry_available(entry, biome_name, spawned):
 			total += entry.spawn_weight
 	if total <= 0.0:
 		return null
 	var roll := _populate_rng.randf() * total
 	var acc := 0.0
 	for entry in _spawnable_entries:
-		if not entry.is_allowed_in_biome(biome_name):
+		if not _entry_available(entry, biome_name, spawned):
 			continue
 		acc += entry.spawn_weight
 		if roll <= acc:
 			return entry
 	return null
+
+
+func _entry_available(entry: FaunaEntry, biome_name: StringName,
+		spawned: Dictionary) -> bool:
+	if not entry.is_allowed_in_biome(biome_name):
+		return false
+	return int(spawned.get(entry.entry_name, 0)) < entry.max_per_chunk
 
 
 func _spawn_critters(chunk_data: ChunkData, origin: Vector3,
@@ -262,6 +298,8 @@ func _spawn_critters(chunk_data: ChunkData, origin: Vector3,
 	if count <= 0:
 		return
 	_ensure_species_registered()
+	## entry name -> how many this chunk has placed, against max_per_chunk.
+	var spawned_here: Dictionary = {}
 	var min_height := SharedWorld.sea_level + _config.populate_min_height_above_sea
 	var coord := SharedWorld.world_to_chunk(origin + Vector3(cs * 0.5, 0, cs * 0.5))
 	for i in count:
@@ -276,9 +314,12 @@ func _spawn_critters(chunk_data: ChunkData, origin: Vector3,
 		# with no idea that biomes or species existed.
 		var entry: FaunaEntry = null
 		if _config.use_fauna_species:
-			entry = _pick_species_entry(_biome_name_at(spawn_pos))
+			entry = _pick_species_entry(_biome_name_at(spawn_pos), spawned_here)
 			if entry == null and not _spawnable_entries.is_empty():
 				continue
+			if entry != null:
+				spawned_here[entry.entry_name] = \
+					int(spawned_here.get(entry.entry_name, 0)) + 1
 
 		var entity := world.spawn()
 		var transform := CTransform.new()
@@ -316,14 +357,22 @@ func _spawn_critters(chunk_data: ChunkData, origin: Vector3,
 			health.hp = 8.0
 		world.add_component(entity, health)
 		var agent := CAgent.new()
-		agent.brain = UtilityBrain.critter_brain()
+		var record := species.get_record(entry.entry_name) if entry != null else null
+		# A carnivore gets a brain with `hunt` in it. Diet is authored on the
+		# FaunaEntry, so what an animal does follows from what it is.
+		agent.brain = UtilityBrain.for_record(record)
 		if genome_comp != null:
 			agent.move_speed = genome_comp.derived_move_speed
 		else:
 			agent.move_speed = _populate_rng.randf_range(2.6, 3.8)
 		world.add_component(entity, agent)
+		if record != null and record.flocks:
+			world.add_component(entity, CGroup.from_record(record))
 		if genome_comp != null:
 			world.add_component(entity, genome_comp)
+		if entry != null and not entry.use_procedural_body:
+			view_sync.bind(entity, _make_authored_view(entry, transform.position))
+		elif genome_comp != null:
 			var critter_view := CritterView.new()
 			critter_view.position = transform.position
 			add_child(critter_view)
@@ -332,6 +381,22 @@ func _spawn_critters(chunk_data: ChunkData, origin: Vector3,
 			view_sync.bind(entity, _make_simple_view(transform.position,
 				Color(0.85, 0.7, 0.45), 0.8, &"capsule"))
 		entities.append(entity)
+
+
+## A view built from a content scene's own mesh children.
+##
+## The authored art, driven by the ECS. FaunaEntry keeps owning what a deer
+## LOOKS like while the simulation owns what it does — which is the split that
+## lets one population replace the two the project used to run.
+func _make_authored_view(entry: FaunaEntry, position: Vector3) -> EntityView:
+	var view := EntityView.new()
+	view.position = position
+	for child in entry.get_children():
+		if child is VisualInstance3D:
+			view.add_child(child.duplicate())
+	_align_view(view, position)
+	add_child(view)
+	return view
 
 
 ## One animal of a species: the founder genome plus this individual's own
@@ -550,6 +615,31 @@ func _forward_events() -> void:
 			for watcher in event_watchers:
 				watcher.call(channel, payload)
 			SystemBus.ecs_event.emit(channel, payload)
+
+
+## Rebuild the shared neighbour index on its own timer.
+## Drop lineages with no living members.
+##
+## Speciation mints a record per split, each holding a full genome, and
+## nothing removed them — so a world left running accumulated species records
+## for as long as it was open. Runs on the stats timer, which is already the
+## coarse "walk the whole world" cadence.
+func _prune_extinct_species() -> void:
+	if _species_cache == null:
+		_species_cache = world.query([&"CSpecies"])
+	var living: Dictionary = {}
+	for entity in world.all_entities_scratch(_species_cache):
+		var component := world.get_component(entity, &"CSpecies") as CSpecies
+		if component != null:
+			living[component.species_id] = true
+	species.prune_extinct(living)
+
+
+var _species_cache: EcsWorld.QueryCache = null
+
+
+func _tick_actor_index(index_world: EcsWorld, delta: float, _frame: int) -> void:
+	actor_index.update(index_world, delta)
 
 
 func _shutdown() -> void:

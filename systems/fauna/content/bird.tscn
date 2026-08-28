@@ -21,6 +21,15 @@ albedo_color = Color(0.25, 0.25, 0.30, 1)
 [node name="Bird" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"bird"
+genome_archetype = "glider"
+genome_variance = 0.6
+speciation_distance = 0.3
+diet = &"omnivore"
+flocking = true
+flock_separation = 0.9
+flock_alignment = 1.1
+flock_cohesion = 0.9
+flock_radius = 11.0
 spawn_weight = 2.5
 max_per_chunk = 4
 min_height = 0.01

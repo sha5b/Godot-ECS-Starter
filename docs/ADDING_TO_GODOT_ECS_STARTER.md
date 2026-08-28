@@ -96,10 +96,33 @@ plant anything.
 ### Fauna example
 ```text
 systems/fauna/content/deer.tscn
-├── Deer                 # root with FaunaEntry script
+├── Deer                 # root with FaunaEntry script (Node3D)
 ├── Body                 # MeshInstance3D
 └── Optional child nodes # traits, helpers, etc.
 ```
+
+A fauna content scene defines a **species**. The ECS registers it as a founding
+species at startup, spawns members of it biome-gated by `allowed_biomes` /
+`excluded_biomes` up to `max_per_chunk`, and then breeds and evolves them.
+Four export groups decide what kind of animal it is:
+
+- **Genetics** — `genome_archetype` picks the body plan (grazer, runner,
+  pouncer, serpent, glider) that every member of the species is built on.
+  `genome_variance` is how different individuals are at birth;
+  `speciation_distance` is how far a lineage may drift before it splits off
+  as a new species. `use_procedural_body` chooses between the genome-driven
+  body (evolution is visible) and this scene's own meshes.
+- **Behavior** — `diet` and `prey_names` decide whether this animal hunts.
+  A carnivore with a prey list gets a hunting brain; everything else forages.
+  Prey names refer to other FaunaEntry names, and keep working after either
+  side speciates.
+- **Behavior > flocking** — `flocking` plus the `flock_*` weights turn the
+  species into a herd, flock, shoal or pack. Members steer with same-species
+  neighbours and break formation when they flee.
+- **Lifecycle / Breeding** — ages, hunger, and how often it reproduces.
+
+You do not register the scene anywhere: drop it under `FaunaSystem` and it is
+part of the world.
 
 ### Biome example
 ```text

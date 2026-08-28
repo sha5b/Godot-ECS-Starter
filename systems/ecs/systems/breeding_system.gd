@@ -88,8 +88,14 @@ func tick(world: EcsWorld, delta: float, _frame: int) -> void:
 
 	# Scratch buffer is safe here: structural changes are deferred commands.
 	var entities := world.all_entities_scratch(_cache)
+	# Rebuilt from the living population rather than updated in place. Ages
+	# were only ever added, so every animal that had ever existed left a
+	# permanent entry — and with chunk streaming despawning and respawning
+	# continuously, that grew for as long as the game ran.
+	var ages: Dictionary = {}
 	for entity in entities:
-		_age[entity] = float(_age.get(entity, 0.0)) + 0.5
+		ages[entity] = float(_age.get(entity, 0.0)) + 0.5
+	_age = ages
 
 	var population := entities.size()
 	if population >= max_population:

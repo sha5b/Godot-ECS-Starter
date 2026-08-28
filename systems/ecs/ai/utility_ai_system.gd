@@ -189,6 +189,38 @@ func _act(world: EcsWorld, entity: int, agent: CAgent, transform: CTransform,
 			away.y = 0.0
 			velocity.linear = away.normalized() * speed * 1.4 if away.length() > 0.01 else Vector3.ZERO
 			agent.energy = maxf(agent.energy - 0.03 * dt, 0.0)
+		&"evade":
+			# Running from a hunter, at whatever burst the body can manage.
+			# derived_flee_multiplier comes from stride and gait cycle, so an
+			# animal that evolves a bouncier gait genuinely escapes more often
+			# — which is the selection pressure predation is supposed to apply.
+			var burst := 1.5
+			var genome := world.get_component(entity, &"CGenome") as CGenome
+			if genome != null:
+				burst = genome.derived_flee_multiplier
+			var predator_pos: Vector3 = agent.blackboard.get("predator_pos", transform.position)
+			var escape := transform.position - predator_pos
+			escape.y = 0.0
+			if escape.length() < 0.01:
+				escape = Vector3(randf() - 0.5, 0.0, randf() - 0.5)
+			velocity.linear = escape.normalized() * speed * burst
+			agent.energy = maxf(agent.energy - 0.09 * dt, 0.0)
+		&"hunt":
+			var prey := int(agent.blackboard.get("prey_entity", 0))
+			if prey != 0 and world.is_alive(prey):
+				var prey_transform := world.get_component(prey, &"CTransform") as CTransform
+				if prey_transform != null:
+					var to_prey := prey_transform.position - transform.position
+					to_prey.y = 0.0
+					velocity.linear = to_prey.normalized() * speed * 1.25
+					# Intent only. PredationSystem decides whether the bite
+					# lands, how hard, and what it feeds — the same split as
+					# AI writing velocity and MovementSystem integrating it.
+					agent.blackboard["hunt_target"] = prey
+					agent.energy = maxf(agent.energy - 0.07 * dt, 0.0)
+			else:
+				agent.blackboard["hunt_target"] = 0
+				_wander(agent, velocity, speed * 0.7, dt)
 		&"seek_food":
 			if agent.target_entity != 0 and world.is_alive(agent.target_entity):
 				var food := world.get_component(agent.target_entity, &"CTransform") as CTransform

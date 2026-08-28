@@ -30,6 +30,10 @@ transparency = 1
 [node name="Jellyfish" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"jellyfish"
+genome_archetype = "serpent"
+genome_variance = 0.7
+speciation_distance = 0.4
+diet = &"herbivore"
 spawn_weight = 1.5
 max_per_chunk = 2
 scale_min = 0.9

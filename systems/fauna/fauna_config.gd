@@ -4,6 +4,23 @@ extends Node
 ## Global configuration for the FaunaSystem.
 ## Fauna types are auto-discovered as FaunaEntry children of FaunaSystem.
 
+## Who simulates the animals.
+##
+## OFF (the default) means the ECS owns them: it spawns from these same
+## FaunaEntry content scenes and runs movement, utility AI, predation,
+## flocking, lifecycle and genetics on them. FaunaSystem is then the content
+## library — `get_entries()` — and nothing else.
+##
+## ON restores this system's own node-based simulation. Both at once is what
+## the project used to do, and it means two populations of animals standing in
+## the same fields ignoring each other.
+##
+## NOTE: shelters, tribes, territories and buildings are driven by the local
+## simulation and go dormant while this is off. They have no ECS equivalent
+## yet — that is the remaining migration work, see docs/ARCHITECTURE_REVIEW.md.
+@export var simulate_locally: bool = false
+
+
 @export_group("Density")
 ## Base number of fauna spawn attempts per chunk
 @export var base_density: int = 8

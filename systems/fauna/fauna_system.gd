@@ -64,7 +64,9 @@ func _initialize() -> void:
 	_ensure_building_root()
 	_sync_shared_registries()
 
-	print("[FaunaSystem] Registered %d fauna types: %s" % [_fauna_entries.size(), _get_entry_names()])
+	var owner_note := "local simulation" if _config.simulate_locally else "ECS-simulated"
+	print("[FaunaSystem] Registered %d fauna types (%s): %s"
+		% [_fauna_entries.size(), owner_note, _get_entry_names()])
 
 
 func _register_signals() -> void:
@@ -73,7 +75,7 @@ func _register_signals() -> void:
 
 
 func system_process(delta: float) -> void:
-	if not active:
+	if not active or not _config.simulate_locally:
 		return
 
 	# Lazy-find systems
@@ -101,6 +103,11 @@ func system_process(delta: float) -> void:
 
 
 func _on_biome_chunk_ready(coord: Vector2i, biome_map: PackedByteArray) -> void:
+	# The ECS spawns from these same entries when it owns the simulation, so
+	# spawning here too would put two animals in the world for every one the
+	# content asked for.
+	if not _config.simulate_locally:
+		return
 	if _chunk_fauna.has(coord):
 		return
 	_spawn_fauna_for_chunk(coord, biome_map)
