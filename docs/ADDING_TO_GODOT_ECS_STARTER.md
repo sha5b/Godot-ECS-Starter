@@ -77,13 +77,21 @@ That scene contains:
 - exported inspector settings
 - mesh children inline
 
+Content roots are `Node3D`, so a content scene is a real 3D prefab: you can
+move, rotate and scale it in the editor and see gizmos on it.
+
 ### Flora example
 ```text
 systems/flora/content/tree.tscn
-├── Tree                 # root with FloraEntry script
+├── Tree                 # root with FloraEntry script (Node3D)
 ├── Trunk                # MeshInstance3D
 └── Canopy               # MeshInstance3D
 ```
+
+Set **Rendering > Drawn By Foliage Shader** on grass-like entries that the
+`FoliageSystem` ground-cover shader already draws, so the two renderers do not
+both plant the same cover. Nothing keys off `entry_name` — you can name a new
+plant anything.
 
 ### Fauna example
 ```text
@@ -98,6 +106,18 @@ systems/fauna/content/deer.tscn
 systems/biome/content/forest.tscn
 └── Forest               # root with BiomeData script
 ```
+
+A new biome needs nothing but this scene. Two export groups are worth setting:
+
+- **Ground Cover** — lushness, dryness, scale, density bonus and sprite
+  weights for the `FoliageSystem`. Leave them alone and the biome grows
+  neutral ground cover; no renderer code knows any biome by name.
+- **Surface Biome** — turn it OFF for interiors like caves, or the biome will
+  compete for open ground and win it.
+
+Climate envelopes are weighted by specificity: a narrow temperature/moisture
+band beats a wide one inside its range. Give a biome wide tolerances to make
+it a fallback, narrow ones to make it a specialist.
 
 ## Add a new flora or fauna type
 

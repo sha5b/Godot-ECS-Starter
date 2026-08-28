@@ -23,6 +23,10 @@ Godot ECS Starter is a Godot-native, inspector-first ECS-style starter kit built
   - BotW-style actor layer: entities, chemistry engine, utility AI
   - Tiered processing and how to use the runtime
 
+- **[Architecture Review](ARCHITECTURE_REVIEW.md)**
+  - What was measured, what was fixed, and what is still open
+  - Read this before extending the actor, terrain, water, or biome layers
+
 ## Documentation Map
 
 ### Core concepts
