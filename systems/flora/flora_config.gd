@@ -13,9 +13,6 @@ extends Node
 @export var min_spacing: float = 1.5
 
 @export_group("Performance")
-## Whether to use MultiMesh for rendering (future — not yet implemented)
-@export var use_multimesh: bool = false
-
 ## Maximum flora instances per chunk (hard cap to prevent lag)
 @export var max_per_chunk: int = 200
 

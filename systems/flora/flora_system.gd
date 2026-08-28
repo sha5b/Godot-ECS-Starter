@@ -3,12 +3,24 @@ extends BaseSystem
 
 ## Spawns flora instances per chunk based on biome + FloraEntry rules.
 ## Flora types are auto-discovered as FloraEntry children — drop scenes in!
+##
+## Plants are not scene instances. Each FloraEntry is flattened once into a list
+## of mesh parts, and every part gets one world-wide MultiMesh. A plant is a
+## CPU-side record that owns the same instance slot in each of its entry's part
+## batches. The whole world of flora therefore costs about one draw call per
+## part per flora type — a few dozen — instead of one per part per plant.
 
 const SHADER_GROUND_COVER_ENTRIES := {
 	&"grass": true,
 	&"flower": true,
 	&"alpine_flower": true,
 }
+
+## Transform written into an instance slot that must not draw.
+const HIDDEN_TRANSFORM := Transform3D(Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO)
+
+## Instance slots are allocated in blocks of at least this many.
+const MIN_BATCH_CAPACITY := 128
 
 var _config: FloraConfig
 
@@ -18,16 +30,38 @@ var _flora_entries: Array[FloraEntry] = []
 ## Total spawn weight for weighted random selection
 var _total_weight: float = 0.0
 
-## Chunk coord → Array of spawned Node3D instances
+## entry index → Array of part templates {mesh, material, xform, varies}
+var _entry_parts: Array = []
+
+## entry index → Array of MultiMeshInstance3D, parallel to _entry_parts
+var _entry_batches: Array = []
+
+## entry index → {capacity: int, count: int, pids: Array[int]}
+## Live instances stay packed at the front of each batch so visible_instance_count
+## draws exactly the plants that exist.
+var _entry_slots: Array = []
+
+## entry index → whether this entry writes per-instance colours
+var _entry_colored: Array = []
+
+## FloraEntry → its index in _flora_entries
+var _entry_index: Dictionary = {}
+
+## Plant id → {entry, coord, slot, pos, rot, base_rot, scale, vis, sway, phase}
+var _plants: Dictionary = {}
+var _next_pid: int = 1
+
+## Chunk coord → Array[int] of plant ids
 var _chunk_flora: Dictionary = {}
 
-var _flora_motion: Dictionary = {}
-
-## Per-instance lifecycle state: instance_id → {entry, age, stage, growth_rate, seed_timer, children_spawned, max_age}
+## Plant id → {entry, age, stage, seed_timer, children_spawned, max_age, base_scale}
 var _flora_lifecycle: Dictionary = {}
 
 ## Lifecycle tick timer
 var _lifecycle_timer: float = 0.0
+
+## Live plant count, mirrored for the debug HUD
+var _total_flora_count: int = 0
 
 var _wind_direction: Vector3 = Vector3(1.0, 0.0, 0.0)
 var _wind_strength: float = 0.0
@@ -59,6 +93,8 @@ func _initialize() -> void:
 	for entry in _flora_entries:
 		_total_weight += entry.spawn_weight
 
+	_build_batches()
+
 	print("[FloraSystem] Registered %d flora types: %s" % [_flora_entries.size(), _get_entry_names()])
 
 
@@ -72,7 +108,7 @@ func _register_signals() -> void:
 func system_process(delta: float) -> void:
 	if not _biome_system:
 		_biome_system = _find_system_by_type(BiomeSystem)
-	_update_flora_wind_sway(delta)
+	_update_flora_motion(delta)
 	_update_lifecycle(delta)
 
 
@@ -95,7 +131,10 @@ func _on_wind_changed(direction: Vector3, strength: float) -> void:
 
 func _discover_flora_entries() -> void:
 	_flora_entries.clear()
+	_entry_index.clear()
 	_collect_flora_children(self)
+	for i in _flora_entries.size():
+		_entry_index[_flora_entries[i]] = i
 
 
 func _collect_flora_children(node: Node) -> void:
@@ -143,6 +182,165 @@ func _pick_flora_entry(rng: RandomNumberGenerator, biome_name: StringName) -> Fl
 	return valid_entries[valid_entries.size() - 1]
 
 
+# ── Batches ───────────────────────────────────────────────────────────────────
+
+## Flatten every entry into mesh parts and give each part a world-wide MultiMesh.
+func _build_batches() -> void:
+	var extent := float(GameConfig.world_size_chunks) * GameConfig.chunk_size
+	if extent <= 0.0:
+		extent = 8192.0
+	var world_aabb := AABB(
+		Vector3(-extent, -extent, -extent),
+		Vector3(extent * 2.0, extent * 2.0, extent * 2.0))
+
+	for i in _flora_entries.size():
+		var entry := _flora_entries[i]
+		var parts := _extract_parts(entry)
+		var colored := entry.hue_variation > 0.0 or entry.value_variation > 0.0
+		var batches: Array[MultiMeshInstance3D] = []
+		for part: Dictionary in parts:
+			var multimesh := MultiMesh.new()
+			multimesh.transform_format = MultiMesh.TRANSFORM_3D
+			multimesh.use_colors = colored
+			multimesh.mesh = part["mesh"]
+			multimesh.instance_count = 0
+			# A fixed AABB keeps the rendering server from rebuilding bounds on
+			# every transform write. Flora is a rounding error in vertex count,
+			# so trading its frustum culling for the draw-call collapse is cheap.
+			multimesh.custom_aabb = world_aabb
+			var instance := MultiMeshInstance3D.new()
+			instance.name = "%s_%s" % [entry.entry_name, part["name"]]
+			instance.multimesh = multimesh
+			instance.material_override = part["material"]
+			add_child(instance)
+			batches.append(instance)
+		_entry_parts.append(parts)
+		_entry_batches.append(batches)
+		_entry_colored.append(colored)
+		_entry_slots.append({"capacity": 0, "count": 0, "pids": ([] as Array[int])})
+		# The entry's own meshes are templates now — stop drawing them at origin.
+		_hide_template_meshes(entry)
+
+
+## Walk an entry's mesh children into flat part templates with baked transforms.
+func _extract_parts(entry: FloraEntry) -> Array[Dictionary]:
+	var parts: Array[Dictionary] = []
+	_collect_parts(entry, Transform3D.IDENTITY, parts)
+	return parts
+
+
+func _collect_parts(node: Node, accumulated: Transform3D, out: Array[Dictionary]) -> void:
+	for child in node.get_children():
+		if child is FloraEntry:
+			continue
+		var local := accumulated
+		if child is Node3D:
+			local = accumulated * (child as Node3D).transform
+		if child is MeshInstance3D:
+			var mesh_inst := child as MeshInstance3D
+			if mesh_inst.mesh != null:
+				var material: Material = mesh_inst.material_override
+				if material == null and mesh_inst.mesh.get_surface_count() > 0:
+					material = mesh_inst.mesh.surface_get_material(0)
+				out.append({
+					"name": str(mesh_inst.name),
+					"mesh": mesh_inst.mesh,
+					"material": _batch_material(material),
+					"base_albedo": (material as StandardMaterial3D).albedo_color if material is StandardMaterial3D else Color.WHITE,
+					"varies": material is StandardMaterial3D,
+					"xform": local,
+				})
+		_collect_parts(child, local, out)
+
+
+## One shared material per part. Per-plant colour variation moves from a
+## duplicated material into the MultiMesh instance colour, so a whole flora type
+## draws with a single material instead of one per plant.
+func _batch_material(source: Material) -> Material:
+	if not source is StandardMaterial3D:
+		return source
+	var material := (source as StandardMaterial3D).duplicate() as StandardMaterial3D
+	material.albedo_color = Color.WHITE
+	material.vertex_color_use_as_albedo = true
+	material.vertex_color_is_srgb = true
+	return material
+
+
+func _hide_template_meshes(entry: FloraEntry) -> void:
+	for child in entry.find_children("*", "VisualInstance3D", true, false):
+		(child as VisualInstance3D).visible = false
+
+
+## Resizing a MultiMesh reallocates its instance buffer, so every live plant of
+## this entry is written back afterwards. Capacity doubles, so the rewrite cost
+## is amortised across spawns.
+func _grow_entry_capacity(entry_idx: int) -> void:
+	var slots: Dictionary = _entry_slots[entry_idx]
+	var new_capacity := maxi(MIN_BATCH_CAPACITY, int(slots["capacity"]) * 2)
+	for instance: MultiMeshInstance3D in _entry_batches[entry_idx]:
+		(instance.multimesh as MultiMesh).instance_count = new_capacity
+	slots["capacity"] = new_capacity
+	for pid: int in slots["pids"]:
+		_write_plant(pid)
+		_apply_plant_colors(pid)
+
+
+func _set_visible_count(entry_idx: int, count: int) -> void:
+	for instance: MultiMeshInstance3D in _entry_batches[entry_idx]:
+		(instance.multimesh as MultiMesh).visible_instance_count = count
+
+
+## Claim the next slot at the end of the packed region.
+func _alloc_slot(entry_idx: int, pid: int) -> int:
+	var slots: Dictionary = _entry_slots[entry_idx]
+	var slot: int = slots["count"]
+	if slot >= int(slots["capacity"]):
+		_grow_entry_capacity(entry_idx)
+	(slots["pids"] as Array).append(pid)
+	slots["count"] = slot + 1
+	_set_visible_count(entry_idx, slot + 1)
+	return slot
+
+
+## Release a slot by moving the last live plant into it, keeping the region packed.
+func _free_slot(entry_idx: int, slot: int) -> void:
+	var slots: Dictionary = _entry_slots[entry_idx]
+	var pids: Array = slots["pids"]
+	var last: int = int(slots["count"]) - 1
+	if last < 0:
+		return
+	if slot != last:
+		var moved_pid: int = pids[last]
+		pids[slot] = moved_pid
+		(_plants[moved_pid] as Dictionary)["slot"] = slot
+		_write_plant(moved_pid)
+		_apply_plant_colors(moved_pid)
+	pids.resize(last)
+	slots["count"] = last
+	_set_visible_count(entry_idx, last)
+
+
+func _plant_transform(plant: Dictionary) -> Transform3D:
+	var scale_factor := float(plant["scale"]) * float(plant["vis"])
+	if scale_factor <= 0.0:
+		return HIDDEN_TRANSFORM
+	var basis := Basis.from_euler(plant["rot"] as Vector3).scaled(
+		Vector3(scale_factor, scale_factor, scale_factor))
+	return Transform3D(basis, plant["pos"])
+
+
+func _write_plant(pid: int) -> void:
+	var plant: Dictionary = _plants[pid]
+	var entry_idx: int = plant["entry"]
+	var slot: int = plant["slot"]
+	var root_xform := _plant_transform(plant)
+	var parts: Array = _entry_parts[entry_idx]
+	var batches: Array = _entry_batches[entry_idx]
+	for i in batches.size():
+		var multimesh: MultiMesh = (batches[i] as MultiMeshInstance3D).multimesh
+		multimesh.set_instance_transform(slot, root_xform * (parts[i]["xform"] as Transform3D))
+
+
 # ── Spawning ──────────────────────────────────────────────────────────────────
 
 func _spawn_flora_for_chunk(coord: Vector2i, biome_map: PackedByteArray) -> void:
@@ -161,7 +359,8 @@ func _spawn_flora_for_chunk(coord: Vector2i, biome_map: PackedByteArray) -> void
 	var rng := RandomNumberGenerator.new()
 	rng.seed = GameConfig.chunk_hash(coord.x, coord.y)
 
-	var instances: Array[Node3D] = []
+	var pids: Array[int] = []
+	var placed := PackedVector3Array()
 	var density := _config.base_density
 	var max_count := _config.max_per_chunk
 
@@ -170,7 +369,7 @@ func _spawn_flora_for_chunk(coord: Vector2i, biome_map: PackedByteArray) -> void
 
 	for gz in grid_count:
 		for gx in grid_count:
-			if instances.size() >= max_count:
+			if pids.size() >= max_count:
 				break
 
 			var local_x := (gx + rng.randf()) * cell_size
@@ -235,67 +434,105 @@ func _spawn_flora_for_chunk(coord: Vector2i, biome_map: PackedByteArray) -> void
 				if entry.min_water_distance > 0.0 and _is_near_water(coord, local_x, local_z, entry.min_water_distance):
 					continue
 
-			if not _has_flora_spacing(instances, chunk_origin.x + local_x, chunk_origin.z + local_z, _config.min_spacing):
+			if not _has_flora_spacing(placed, chunk_origin.x + local_x, chunk_origin.z + local_z, _config.min_spacing):
 				continue
 
-			# Instantiate by cloning entry's mesh children
-			var instance: Node3D = entry.create_instance()
-
-			# Position
-			instance.position = Vector3(
+			var position := Vector3(
 				chunk_origin.x + local_x,
 				height - entry.ground_sink,
 				chunk_origin.z + local_z
 			)
-			instance.set_meta("flora_entry_name", entry.entry_name)
-			var s := rng.randf_range(entry.scale_min, entry.scale_max)
-			instance.scale = Vector3(s, s, s)
+			var plant_scale := rng.randf_range(entry.scale_min, entry.scale_max)
 
 			# Rotation
+			var rotation_euler := Vector3.ZERO
 			if entry.random_rotation:
-				instance.rotation.y = rng.randf() * TAU
+				rotation_euler.y = rng.randf() * TAU
 
 			# Tilt
 			if entry.random_tilt > 0.0:
 				var tilt_rad := deg_to_rad(rng.randf_range(-entry.random_tilt, entry.random_tilt))
-				instance.rotation.x = tilt_rad
-				instance.rotation.z = rng.randf_range(-tilt_rad, tilt_rad)
+				rotation_euler.x = tilt_rad
+				rotation_euler.z = rng.randf_range(-tilt_rad, tilt_rad)
 			if not entry.aquatic:
-				_align_instance_to_surface(instance, support, entry)
+				rotation_euler = _align_rotation_to_surface(rotation_euler, support, entry)
 
-			_apply_flora_visual_variation(instance, entry, rng)
-			_register_flora_motion(instance, entry, rng)
-			_register_flora_lifecycle(instance, entry, rng)
+			var pid := _add_plant(entry, coord, position, rotation_euler, plant_scale, rng)
+			pids.append(pid)
+			placed.append(position)
 
-			_apply_view_distance(instance)
-			add_child(instance)
-			instances.append(instance)
-
-	_chunk_flora[coord] = instances
-	SharedWorld.total_flora_count += instances.size()
-	SystemBus.flora_chunk_spawned.emit(coord, instances.size())
+	_chunk_flora[coord] = pids
+	_total_flora_count += pids.size()
+	SharedWorld.total_flora_count += pids.size()
+	SystemBus.flora_chunk_spawned.emit(coord, pids.size())
 
 
-## Fade a prop out past the configured view distance.
-##
-## Flora is one scene instance per plant, so a large load radius puts many
-## thousands of separately drawn objects in the scene at once. Culling the
-## distant ones is the difference between a playable frame and a slideshow,
-## and at these ranges they are a few pixels of silhouette inside the haze.
-func _apply_view_distance(node: Node3D) -> void:
-	if _config == null or _config.view_distance <= 0.0:
+## Register a plant record, claim its instance slots, and push it to the GPU.
+func _add_plant(entry: FloraEntry, coord: Vector2i, position: Vector3, rotation_euler: Vector3,
+		plant_scale: float, rng: RandomNumberGenerator) -> int:
+	var entry_idx: int = _entry_index[entry]
+	var pid := _next_pid
+	_next_pid += 1
+	var slot := _alloc_slot(entry_idx, pid)
+
+	# Colours are rolled here so the RNG draw order matches the spawn sequence.
+	var colors := _roll_plant_colors(entry, entry_idx, rng)
+	var phase := rng.randf() * TAU if entry.wind_sway_strength > 0.0 else 0.0
+
+	_plants[pid] = {
+		"entry": entry_idx,
+		"coord": coord,
+		"slot": slot,
+		"pos": position,
+		"rot": rotation_euler,
+		"base_rot": rotation_euler,
+		"scale": plant_scale,
+		"vis": 1.0,
+		"sway": entry.wind_sway_strength,
+		"phase": phase,
+		"colors": colors,
+	}
+
+	_write_plant(pid)
+	_apply_plant_colors(pid)
+	_register_flora_lifecycle(pid, entry, rng)
+	return pid
+
+
+## Roll this plant's hue/value variation once, per part, at spawn time.
+func _roll_plant_colors(entry: FloraEntry, entry_idx: int, rng: RandomNumberGenerator) -> Array:
+	if not bool(_entry_colored[entry_idx]):
+		return []
+	var parts: Array = _entry_parts[entry_idx]
+	var colors: Array = []
+	colors.resize(parts.size())
+	for i in parts.size():
+		var part: Dictionary = parts[i]
+		if not bool(part["varies"]):
+			colors[i] = Color.WHITE
+			continue
+		var color: Color = part["base_albedo"]
+		var hue_shift := rng.randf_range(-entry.hue_variation, entry.hue_variation)
+		var value_shift := rng.randf_range(-entry.value_variation, entry.value_variation)
+		color.h = wrapf(color.h + hue_shift, 0.0, 1.0)
+		color.v = clampf(color.v + value_shift, 0.0, 1.0)
+		colors[i] = color
+	return colors
+
+
+## Push a plant's stored colours into its instance slots.
+func _apply_plant_colors(pid: int) -> void:
+	var plant: Dictionary = _plants[pid]
+	var colors: Array = plant["colors"]
+	if colors.is_empty():
 		return
-	for child in node.find_children("*", "GeometryInstance3D", true, false):
-		var geo := child as GeometryInstance3D
-		geo.visibility_range_end = _config.view_distance
-		geo.visibility_range_end_margin = _config.view_fade
-		geo.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
-	if node is GeometryInstance3D:
-		var self_geo := node as GeometryInstance3D
-		self_geo.visibility_range_end = _config.view_distance
-		self_geo.visibility_range_end_margin = _config.view_fade
-		self_geo.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+	var slot: int = plant["slot"]
+	var batches: Array = _entry_batches[plant["entry"]]
+	for i in colors.size():
+		((batches[i] as MultiMeshInstance3D).multimesh as MultiMesh).set_instance_color(slot, colors[i])
 
+
+# ── Terrain sampling ──────────────────────────────────────────────────────────
 
 func _sample_ground_support(coord: Vector2i, local_x: float, local_z: float, probe_radius: float,
 		max_ground_delta: float) -> Dictionary:
@@ -383,35 +620,19 @@ func _wrap_local_sample(coord: Vector2i, local_x: float, local_z: float) -> Dict
 	}
 
 
-func _align_instance_to_surface(instance: Node3D, support: Dictionary, entry: FloraEntry) -> void:
+func _align_rotation_to_surface(rotation_euler: Vector3, support: Dictionary, entry: FloraEntry) -> Vector3:
 	var align_strength := clampf(entry.surface_alignment, 0.0, 1.0)
 	if align_strength <= 0.001:
-		return
+		return rotation_euler
 	var surface_normal: Vector3 = support.get("normal", Vector3.UP)
 	if surface_normal.length_squared() < 0.0001:
-		return
+		return rotation_euler
 	var target_x := atan2(surface_normal.z, maxf(surface_normal.y, 0.001))
 	var target_z := -atan2(surface_normal.x, maxf(surface_normal.y, 0.001))
-	instance.rotation.x += target_x * align_strength
-	instance.rotation.z += target_z * align_strength
-
-
-# ── Cleanup & Utilities ───────────────────────────────────────────────────────
-
-func _clear_chunk_flora(coord: Vector2i) -> void:
-	if not _chunk_flora.has(coord):
-		return
-	var instances: Array = _chunk_flora[coord]
-	for inst in instances:
-		if is_instance_valid(inst):
-			var iid: int = inst.get_instance_id()
-			_flora_motion.erase(iid)
-			_flora_lifecycle.erase(iid)
-			inst.queue_free()
-	SharedWorld.total_flora_count -= instances.size()
-	_chunk_flora.erase(coord)
-	SystemBus.flora_chunk_cleared.emit(coord)
-
+	return Vector3(
+		rotation_euler.x + target_x * align_strength,
+		rotation_euler.y,
+		rotation_euler.z + target_z * align_strength)
 
 
 func _is_near_water(coord: Vector2i, local_x: float, local_z: float, min_distance: float) -> bool:
@@ -439,52 +660,29 @@ func _is_near_water(coord: Vector2i, local_x: float, local_z: float, min_distanc
 	return false
 
 
-func _has_flora_spacing(instances: Array[Node3D], world_x: float, world_z: float, min_spacing: float) -> bool:
+func _has_flora_spacing(placed: PackedVector3Array, world_x: float, world_z: float, min_spacing: float) -> bool:
 	if min_spacing <= 0.0:
 		return true
 	var min_spacing_sq := min_spacing * min_spacing
-	for inst in instances:
-		if not is_instance_valid(inst):
-			continue
-		var dx := inst.position.x - world_x
-		var dz := inst.position.z - world_z
+	for position in placed:
+		var dx := position.x - world_x
+		var dz := position.z - world_z
 		if dx * dx + dz * dz < min_spacing_sq:
 			return false
 	return true
 
 
-func _apply_flora_visual_variation(instance: Node3D, entry: FloraEntry, rng: RandomNumberGenerator) -> void:
-	if entry.hue_variation <= 0.0 and entry.value_variation <= 0.0:
-		return
-	for mesh_inst in _collect_mesh_instances(instance):
-		var base_material: Material = mesh_inst.material_override
-		if not base_material and mesh_inst.mesh and mesh_inst.mesh.get_surface_count() > 0:
-			base_material = mesh_inst.mesh.surface_get_material(0)
-		if not base_material or not base_material is StandardMaterial3D:
-			continue
-		var material := (base_material as StandardMaterial3D).duplicate() as StandardMaterial3D
-		var color := material.albedo_color
-		var hue_shift := rng.randf_range(-entry.hue_variation, entry.hue_variation)
-		var value_shift := rng.randf_range(-entry.value_variation, entry.value_variation)
-		color.h = wrapf(color.h + hue_shift, 0.0, 1.0)
-		color.v = clampf(color.v + value_shift, 0.0, 1.0)
-		material.albedo_color = color
-		mesh_inst.material_override = material
+func _find_terrain_params() -> void:
+	_sea_level = SharedWorld.sea_level
+	_height_scale = SharedWorld.height_scale
 
 
-func _register_flora_motion(instance: Node3D, entry: FloraEntry, rng: RandomNumberGenerator) -> void:
-	if entry.wind_sway_strength <= 0.0:
-		return
-	_flora_motion[instance.get_instance_id()] = {
-		"node": instance,
-		"base_rotation": instance.rotation,
-		"strength": entry.wind_sway_strength,
-		"phase": rng.randf() * TAU,
-	}
+# ── Wind sway & view distance ─────────────────────────────────────────────────
 
-
-func _update_flora_wind_sway(delta: float) -> void:
-	if _flora_motion.is_empty():
+## One pass per frame over live plants. Near plants sway; distant plants shrink
+## out over the fade band and stop being written once they are fully gone.
+func _update_flora_motion(delta: float) -> void:
+	if _plants.is_empty():
 		return
 	var dir := _wind_direction
 	if dir.length_squared() <= 0.0001:
@@ -494,53 +692,63 @@ func _update_flora_wind_sway(delta: float) -> void:
 
 	var cam_pos := SharedWorld.camera_world_pos
 	var sway_cull_dist_sq := _config.sway_cull_distance * _config.sway_cull_distance
+	var view_end := _config.view_distance
+	var fade := maxf(_config.view_fade, 0.001)
+	var fade_start := maxf(view_end - fade, 0.0)
+	var fade_start_sq := fade_start * fade_start
+	var view_end_sq := view_end * view_end
+	var sway_amount := minf(_wind_strength * 0.08, 0.2)
+	var phase_step := delta * (0.8 + _wind_strength * 0.35)
 
-	for iid in _flora_motion.keys():
-		var motion: Dictionary = _flora_motion[iid]
-		var node: Node3D = motion.get("node") as Node3D
-		if not is_instance_valid(node):
-			_flora_motion.erase(iid)
-			continue
+	for pid: int in _plants:
+		var plant: Dictionary = _plants[pid]
+		var position: Vector3 = plant["pos"]
+		var dx := position.x - cam_pos.x
+		var dz := position.z - cam_pos.z
+		var dist_sq := dx * dx + dz * dz
+		var dirty := false
 
-		# Distance culling: skip sway for flora too far from camera
-		var dx := node.position.x - cam_pos.x
-		var dz := node.position.z - cam_pos.z
-		if dx * dx + dz * dz > sway_cull_dist_sq:
-			continue
+		if view_end > 0.0:
+			var visibility: float = plant["vis"]
+			if dist_sq >= view_end_sq:
+				if visibility != 0.0:
+					plant["vis"] = 0.0
+					_write_plant(pid)
+				continue  # fully faded out — nothing else to update
+			elif dist_sq <= fade_start_sq:
+				if visibility != 1.0:
+					plant["vis"] = 1.0
+					dirty = true
+			else:
+				var target := clampf(1.0 - (sqrt(dist_sq) - fade_start) / fade, 0.0, 1.0)
+				if absf(target - visibility) > 0.02:
+					plant["vis"] = target
+					dirty = true
 
-		var base_rotation: Vector3 = motion.get("base_rotation", Vector3.ZERO)
-		var strength: float = float(motion.get("strength", 0.0))
-		var phase: float = float(motion.get("phase", 0.0)) + delta * (0.8 + _wind_strength * 0.35)
-		motion["phase"] = phase
-		var sway := sin(phase) * strength * minf(_wind_strength * 0.08, 0.2)
-		node.rotation.x = base_rotation.x + dir.z * sway
-		node.rotation.z = base_rotation.z - dir.x * sway
-		_flora_motion[iid] = motion
+		var strength: float = plant["sway"]
+		if strength > 0.0 and dist_sq <= sway_cull_dist_sq:
+			var phase: float = float(plant["phase"]) + phase_step
+			plant["phase"] = phase
+			var sway := sin(phase) * strength * sway_amount
+			var base_rotation: Vector3 = plant["base_rot"]
+			plant["rot"] = Vector3(
+				base_rotation.x + dir.z * sway,
+				base_rotation.y,
+				base_rotation.z - dir.x * sway)
+			dirty = true
+
+		if dirty:
+			_write_plant(pid)
 
 
-func _collect_mesh_instances(root: Node) -> Array[MeshInstance3D]:
-	var meshes: Array[MeshInstance3D] = []
-	for child in root.get_children():
-		if child is MeshInstance3D:
-			meshes.append(child)
-		meshes.append_array(_collect_mesh_instances(child))
-	return meshes
+# ── Lifecycle ─────────────────────────────────────────────────────────────────
 
-
-func _find_terrain_params() -> void:
-	_sea_level = SharedWorld.sea_level
-	_height_scale = SharedWorld.height_scale
-
-
-# ── Lifecycle System ─────────────────────────────────────────────────────────
-
-func _register_flora_lifecycle(instance: Node3D, entry: FloraEntry, rng: RandomNumberGenerator) -> void:
+func _register_flora_lifecycle(pid: int, entry: FloraEntry, rng: RandomNumberGenerator) -> void:
 	if not entry.growth_enabled or not _config.lifecycle_enabled:
 		return
 	var variance := _config.max_age_variance
 	var age_mult := 1.0 + rng.randf_range(-variance, variance)
-	_flora_lifecycle[instance.get_instance_id()] = {
-		"node": instance,
+	_flora_lifecycle[pid] = {
 		"entry": entry,
 		"age": 0.0,
 		"stage": 0,
@@ -548,7 +756,7 @@ func _register_flora_lifecycle(instance: Node3D, entry: FloraEntry, rng: RandomN
 		"seed_timer": 0.0,
 		"children_spawned": 0,
 		"max_age": entry.max_age * age_mult,
-		"base_scale": instance.scale,
+		"base_scale": float(_plants[pid]["scale"]),
 	}
 
 
@@ -569,16 +777,15 @@ func _update_lifecycle(delta: float) -> void:
 
 	var to_remove: Array[int] = []
 
-	for iid: int in _flora_lifecycle.keys():
-		var lc: Dictionary = _flora_lifecycle[iid]
-		var node: Node3D = lc.get("node") as Node3D
-		if not is_instance_valid(node):
-			to_remove.append(iid)
+	for pid: int in _flora_lifecycle.keys():
+		var lc: Dictionary = _flora_lifecycle[pid]
+		if not _plants.has(pid):
+			to_remove.append(pid)
 			continue
 
 		var entry: FloraEntry = lc.get("entry") as FloraEntry
 		if not entry:
-			to_remove.append(iid)
+			to_remove.append(pid)
 			continue
 
 		# Compute effective growth rate (season + rain modifiers)
@@ -594,15 +801,15 @@ func _update_lifecycle(delta: float) -> void:
 
 		# Check drought death
 		if is_drought and randf() < entry.drought_death_chance:
-			_kill_flora_instance(iid, node, entry)
-			to_remove.append(iid)
+			_kill_flora_instance(pid, entry)
+			to_remove.append(pid)
 			continue
 
 		# Check natural death (old age)
 		var max_age: float = lc["max_age"]
 		if age >= max_age:
-			_kill_flora_instance(iid, node, entry)
-			to_remove.append(iid)
+			_kill_flora_instance(pid, entry)
+			to_remove.append(pid)
 			continue
 
 		# Update growth stage and visual scale
@@ -610,7 +817,7 @@ func _update_lifecycle(delta: float) -> void:
 		var new_stage := clampi(int(age / entry.growth_time), 0, stage_count - 1)
 		lc["stage"] = new_stage
 
-		var base_scale: Vector3 = lc["base_scale"]
+		var base_scale: float = lc["base_scale"]
 		var scale_frac: float
 		if stage_count <= 1:
 			scale_frac = 1.0
@@ -621,7 +828,10 @@ func _update_lifecycle(delta: float) -> void:
 				scale_frac = lerpf(_config.seedling_scale, _config.mature_scale, stage_norm * 2.0)
 			else:
 				scale_frac = lerpf(_config.mature_scale, _config.old_scale, (stage_norm - 0.5) * 2.0)
-		node.scale = base_scale * scale_frac
+		var plant: Dictionary = _plants[pid]
+		if not is_equal_approx(float(plant["scale"]), base_scale * scale_frac):
+			plant["scale"] = base_scale * scale_frac
+			_write_plant(pid)
 
 		# Seed spreading (E2) — only mature stage
 		if entry.spreads_seeds and new_stage > 0 and new_stage < stage_count - 1:
@@ -630,33 +840,43 @@ func _update_lifecycle(delta: float) -> void:
 			var children_spawned: int = lc["children_spawned"]
 			if seed_timer >= entry.seed_spread_interval and children_spawned < entry.max_children_per_parent:
 				if seedlings_this_tick < _config.max_seedlings_per_tick and randf() < entry.seed_spread_chance:
-					if _try_spread_seed(node, entry):
+					if _try_spread_seed(pid, entry):
 						lc["children_spawned"] = children_spawned + 1
 						lc["seed_timer"] = 0.0
 						seedlings_this_tick += 1
 
-		_flora_lifecycle[iid] = lc
-
-	for iid in to_remove:
-		_flora_lifecycle.erase(iid)
+	for pid in to_remove:
+		_flora_lifecycle.erase(pid)
 
 
-func _kill_flora_instance(iid: int, node: Node3D, entry: FloraEntry) -> void:
-	SystemBus.flora_died.emit(node.global_position, entry.name)
-	_flora_motion.erase(iid)
-	# Remove from chunk tracking
-	for coord: Vector2i in _chunk_flora:
-		var instances: Array = _chunk_flora[coord]
-		var idx := instances.find(node)
+func _kill_flora_instance(pid: int, entry: FloraEntry) -> void:
+	var plant: Dictionary = _plants.get(pid, {})
+	if plant.is_empty():
+		return
+	SystemBus.flora_died.emit(plant["pos"], entry.entry_name)
+	_remove_plant(pid)
+
+
+## Release a plant's instance slot and drop it from chunk tracking.
+func _remove_plant(pid: int) -> void:
+	var plant: Dictionary = _plants.get(pid, {})
+	if plant.is_empty():
+		return
+	_free_slot(plant["entry"], plant["slot"])
+	var coord: Vector2i = plant["coord"]
+	if _chunk_flora.has(coord):
+		var pids: Array = _chunk_flora[coord]
+		var idx := pids.find(pid)
 		if idx >= 0:
-			instances.remove_at(idx)
-			break
+			pids.remove_at(idx)
+	_plants.erase(pid)
+	_flora_lifecycle.erase(pid)
+	_total_flora_count -= 1
 	SharedWorld.total_flora_count -= 1
-	node.queue_free()
 
 
-func _try_spread_seed(parent: Node3D, entry: FloraEntry) -> bool:
-	var spread_pos := parent.global_position
+func _try_spread_seed(parent_pid: int, entry: FloraEntry) -> bool:
+	var spread_pos: Vector3 = _plants[parent_pid]["pos"]
 	var radius := entry.seed_spread_radius
 
 	# Determine seed landing position based on dispersal method
@@ -683,14 +903,11 @@ func _try_spread_seed(parent: Node3D, entry: FloraEntry) -> bool:
 	# Check chunk seedling cap
 	var chunk_coord := SharedWorld.world_to_chunk(target_pos)
 	if _chunk_flora.has(chunk_coord):
-		var chunk_instances: Array = _chunk_flora[chunk_coord]
-		# Count seedlings in this chunk
 		var seedling_count := 0
-		for inst in chunk_instances:
-			if is_instance_valid(inst):
-				var lc: Dictionary = _flora_lifecycle.get(inst.get_instance_id(), {})
-				if lc.get("stage", -1) == 0:
-					seedling_count += 1
+		for pid: int in _chunk_flora[chunk_coord]:
+			var lc: Dictionary = _flora_lifecycle.get(pid, {})
+			if lc.get("stage", -1) == 0:
+				seedling_count += 1
 		if seedling_count >= _config.max_seedlings_per_chunk:
 			return false
 
@@ -699,57 +916,94 @@ func _try_spread_seed(parent: Node3D, entry: FloraEntry) -> bool:
 	if h <= _sea_level and not entry.aquatic:
 		return false
 
-	# Create seedling instance
-	var instance := entry.create_instance()
-	if not instance:
-		return false
-
-	instance.position = Vector3(target_pos.x, h - entry.ground_sink, target_pos.z)
-	instance.set_meta("flora_entry_name", entry.entry_name)
-	var seed_s := (entry.scale_min + entry.scale_max) * 0.5 * _config.seedling_scale
-	instance.scale = Vector3(seed_s, seed_s, seed_s)
-	if entry.random_rotation:
-		instance.rotation.y = randf() * TAU
-	add_child(instance)
-
-	# Register in chunk tracking
-	if not _chunk_flora.has(chunk_coord):
-		_chunk_flora[chunk_coord] = []
-	_chunk_flora[chunk_coord].append(instance)
-	SharedWorld.total_flora_count += 1
-
-	# Register lifecycle for the seedling
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(target_pos)
-	_register_flora_lifecycle(instance, entry, rng)
-	_register_flora_motion(instance, entry, rng)
+	var seed_scale := (entry.scale_min + entry.scale_max) * 0.5 * _config.seedling_scale
+	var rotation_euler := Vector3.ZERO
+	if entry.random_rotation:
+		rotation_euler.y = rng.randf() * TAU
 
+	var pid := _add_plant(entry, chunk_coord,
+		Vector3(target_pos.x, h - entry.ground_sink, target_pos.z),
+		rotation_euler, seed_scale, rng)
+
+	if not _chunk_flora.has(chunk_coord):
+		_chunk_flora[chunk_coord] = ([] as Array[int])
+	_chunk_flora[chunk_coord].append(pid)
+	_total_flora_count += 1
+	SharedWorld.total_flora_count += 1
 	return true
 
 
 func _on_fauna_ate_flora(world_pos: Vector3, _flora_name: StringName, _fauna_name: StringName) -> void:
 	# Find the closest flora instance to the reported position and damage/kill it
 	var closest_dist_sq := _config.forage_search_radius_sq
-	var closest_node: Node3D = null
-	var closest_iid: int = -1
+	var closest_pid := -1
 
-	for iid: int in _flora_lifecycle.keys():
-		var lc: Dictionary = _flora_lifecycle[iid]
-		var node: Node3D = lc.get("node") as Node3D
-		if not is_instance_valid(node):
+	for pid: int in _flora_lifecycle:
+		if not _plants.has(pid):
 			continue
-		var dist_sq := node.global_position.distance_squared_to(world_pos)
+		var dist_sq: float = (_plants[pid]["pos"] as Vector3).distance_squared_to(world_pos)
 		if dist_sq < closest_dist_sq:
 			closest_dist_sq = dist_sq
-			closest_node = node
-			closest_iid = iid
+			closest_pid = pid
 
-	if closest_node and closest_iid >= 0:
-		var lc: Dictionary = _flora_lifecycle[closest_iid]
-		var entry: FloraEntry = lc.get("entry") as FloraEntry
+	if closest_pid >= 0:
+		var entry: FloraEntry = _flora_lifecycle[closest_pid].get("entry") as FloraEntry
 		if entry:
-			_kill_flora_instance(closest_iid, closest_node, entry)
-			_flora_lifecycle.erase(closest_iid)
+			_kill_flora_instance(closest_pid, entry)
+
+
+# ── Queries ───────────────────────────────────────────────────────────────────
+
+## Best plant within `radius` of `origin` to perch on or shelter under.
+## Returns {"pos": Vector3, "score": float}, or an empty dictionary if none fit.
+func find_support_site(origin: Vector3, allowed_names: Array, radius: float,
+		height_offset: float) -> Dictionary:
+	var radius_sq := radius * radius
+	var best_score := -INF
+	var best_pos := Vector3.ZERO
+	for pid: int in _plants:
+		var plant: Dictionary = _plants[pid]
+		if not allowed_names.is_empty():
+			var entry_name: StringName = _flora_entries[plant["entry"]].entry_name
+			if entry_name not in allowed_names:
+				continue
+		var position: Vector3 = plant["pos"]
+		var dx := position.x - origin.x
+		var dz := position.z - origin.z
+		var dist_sq := dx * dx + dz * dz
+		if dist_sq > radius_sq:
+			continue
+		var score := maxf(position.y - origin.y, 0.0) * 1.25 - sqrt(dist_sq) * 0.15
+		if score > best_score:
+			best_score = score
+			best_pos = Vector3(position.x, position.y + height_offset, position.z)
+	if best_score == -INF:
+		return {}
+	return {
+		"pos": best_pos,
+		"score": best_score,
+	}
+
+
+# ── Cleanup ───────────────────────────────────────────────────────────────────
+
+func _clear_chunk_flora(coord: Vector2i) -> void:
+	if not _chunk_flora.has(coord):
+		return
+	var pids: Array = _chunk_flora[coord]
+	for pid: int in pids:
+		var plant: Dictionary = _plants.get(pid, {})
+		if plant.is_empty():
+			continue
+		_free_slot(plant["entry"], plant["slot"])
+		_plants.erase(pid)
+		_flora_lifecycle.erase(pid)
+	_total_flora_count -= pids.size()
+	SharedWorld.total_flora_count -= pids.size()
+	_chunk_flora.erase(coord)
+	SystemBus.flora_chunk_cleared.emit(coord)
 
 
 func _shutdown() -> void:

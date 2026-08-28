@@ -680,31 +680,8 @@ func _find_best_support_flora_site(origin: Vector3, shelter_profile: Node) -> Di
 	var allowed_supports: Array = _node_prop(shelter_profile, &"preferred_support_flora_names", [])
 	var search_radius := float(_node_prop(shelter_profile, &"support_search_radius", 4.0))
 	var height_offset := float(_node_prop(shelter_profile, &"support_height_offset", 2.5))
-	var radius_sq := search_radius * search_radius
-	var best_score := -INF
-	var best_pos := Vector3.ZERO
-	for child in flora_system.get_children():
-		if not child is Node3D:
-			continue
-		var flora_node := child as Node3D
-		if not flora_node:
-			continue
-		var entry_name := StringName(str(flora_node.get_meta("flora_entry_name", &"")))
-		if not allowed_supports.is_empty() and entry_name not in allowed_supports:
-			continue
-		var dist_sq := Vector2(flora_node.position.x - origin.x, flora_node.position.z - origin.z).length_squared()
-		if dist_sq > radius_sq:
-			continue
-		var score := maxf(flora_node.position.y - origin.y, 0.0) * 1.25 - sqrt(dist_sq) * 0.15
-		if score > best_score:
-			best_score = score
-			best_pos = Vector3(flora_node.position.x, flora_node.position.y + height_offset, flora_node.position.z)
-	if best_score == -INF:
-		return {}
-	return {
-		"pos": best_pos,
-		"score": best_score,
-	}
+	return (flora_system as FloraSystem).find_support_site(
+		origin, allowed_supports, search_radius, height_offset)
 
 
 func _get_home_site_position(ai: Dictionary, fallback_pos: Vector3) -> Vector3:
