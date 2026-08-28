@@ -23,7 +23,7 @@ roughness = 0.35
 [node name="Fish" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"fish"
-genome_archetype = "serpent"
+genome_archetype = "swimmer"
 genome_variance = 0.5
 speciation_distance = 0.3
 diet = &"herbivore"

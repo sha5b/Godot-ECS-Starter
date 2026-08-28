@@ -10,6 +10,7 @@ extends Node3D
 ##
 ## Controls:
 ##   1/2/3  select showcase pedestal        R  randomize selected genome
+##   F      cycle body plan (grazer/runner/pouncer/serpent/swimmer/glider)
 ##   M      mutate selected genome          C  crossover slots 1+2 into 3
 ##   SPACE  treadmill on/off                G  cycle idle/walk/run
 ##   TAB    cycle gait pattern gene         E  one selection round
@@ -17,6 +18,11 @@ extends Node3D
 ##
 ## Headless smoke mode: run with env BODY_LAB_SMOKE=1 to self-check and
 ## exit non-zero on failure.
+
+## The authored body plans, in the order F steps through them.
+const BODY_PLANS: Array[StringName] = [
+	&"grazer", &"runner", &"pouncer", &"serpent", &"swimmer", &"glider",
+]
 
 const SHOWCASE_SLOTS := 3
 const RUNWAY_POPULATION := 8
@@ -37,6 +43,7 @@ var _slot_views: Array[CritterView] = []
 var _slot_labels: Array[Label3D] = []
 var _slot_rings: Array[MeshInstance3D] = []
 var _selected_slot := 0
+var _plan_index := 0
 var _gait_levels: PackedFloat32Array = [0.0, 0.5, 1.0]
 var _gait_level_index := 1
 var _treadmill := true
@@ -102,6 +109,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			_select_slot(2)
 		KEY_R:
 			_set_slot_genome(_selected_slot, CritterGenome.randomized(_rng))
+		KEY_F:
+			# Step through the body plans directly. R rolls a random one, which
+			# reaches the rarer plans only about one time in seven — no way to
+			# actually look at a swimmer or a glider on demand.
+			_plan_index = (_plan_index + 1) % BODY_PLANS.size()
+			_set_slot_genome(_selected_slot,
+				CritterGenome.for_archetype(BODY_PLANS[_plan_index], _rng))
 		KEY_M:
 			var genome := _slot_genome(_selected_slot)
 			if genome != null:
@@ -468,7 +482,7 @@ func _build_hud() -> void:
 	_help_label.add_theme_color_override("font_color", Color.WHITE)
 	_help_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.85))
 	_help_label.text = "BODY LAB — procedural critters
-[1/2/3] select   [R] randomize   [M] mutate   [C] cross 1+2 → 3
+[1/2/3] select   [R] randomize   [F] body plan   [M] mutate   [C] cross 1+2 → 3
 [SPACE] treadmill   [G] idle/walk/run   [TAB] gait pattern
 [E] selection round   [P] auto-evolve   [H] help   [ESC] main scene"
 	layer.add_child(_help_label)

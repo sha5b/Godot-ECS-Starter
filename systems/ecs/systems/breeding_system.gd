@@ -55,6 +55,10 @@ var offspring_count := 1
 ## cheap stand-in for maturity until a lifecycle component exists.
 var maturity_delay := 3.0
 
+## Sea level, for placing offspring in the right medium. EcsSystem pushes it
+## from SharedWorld; a swimmer's child has to be born in the water.
+var sea_level := 0.0
+
 ## Deterministic stream seed. EcsSystem sets it from GameConfig.world_seed so
 ## two runs on the same seed evolve the same lineages.
 var seed_value: int = 0xb2eed:
@@ -200,7 +204,10 @@ func _spawn_child(world: EcsWorld, parent_a: int, genome_a: CGenome,
 	transform.position = position + Vector3(rng.randf_range(-0.8, 0.8), 0.0, rng.randf_range(-0.8, 0.8))
 	transform.facing = rng.randf() * TAU
 	var agent := CAgent.new()
-	agent.brain = UtilityBrain.critter_brain()
+	# The brain a carnivore's child needs has `hunt` in it. Hard-coding the
+	# forager brain here meant every predator lineage produced foragers, so
+	# hunting only ever existed in the generation that was spawned.
+	agent.brain = UtilityBrain.for_record(record)
 	agent.move_speed = child_comp.derived_move_speed
 	var health := CHealth.new()
 	health.max_hp = child_comp.derived_health_max
@@ -208,6 +215,20 @@ func _spawn_child(world: EcsWorld, parent_a: int, genome_a: CGenome,
 	var body := CBody.new()
 	body.material = CBody.SurfaceMaterial.FLESH
 	body.fuel = 3.0
+
+	# The child's medium comes from ITS OWN genome, so a mutation that grows
+	# fins or wings takes effect in the generation that carries it. Offspring
+	# used to inherit no locomotion at all: a fish's child was a land animal
+	# that sank into the seafloor, and no lineage could change medium.
+	var locomotion := CLocomotion.from_genome(child_genome, null, rng)
+	components.append(locomotion)
+	# Herding is a species trait, so the child of a herd animal herds.
+	if record != null and record.flocks:
+		components.append(CGroup.from_record(record))
+	# The grounding pass re-seats it next tick anyway, but a child that spends
+	# even one frame in the wrong medium is a child a dormant tier never fixes.
+	transform.position.y = CLocomotion.rest_height(locomotion.medium,
+		locomotion.hover_height, position.y, sea_level)
 
 	components.append_array([transform, CVelocity.new(), agent, health, body,
 		CElemental.new(), child_comp])

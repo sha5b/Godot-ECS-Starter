@@ -28,6 +28,7 @@ const UNIT_LEG_GIRTH := 0.06
 const UNIT_FOOT := 0.6
 const UNIT_TAIL := 0.22
 const UNIT_WING := 0.5
+const UNIT_FIN := 0.42
 
 ## Where the skull control rides on the Head joint, and where the snout
 ## pivot sits, both in units of skull_r (head-local space).
@@ -49,6 +50,7 @@ const GROUP_KNEE := &"critter_knee"
 const GROUP_TAIL := &"critter_tail"
 const GROUP_HEAD := &"critter_head"
 const GROUP_WING := &"critter_wing"
+const GROUP_FIN := &"critter_fin"
 
 
 ## Build a complete rigged critter. Returns the "Critter" root with a
@@ -70,6 +72,8 @@ static func build(genome: CritterGenome) -> Node3D:
 	_build_tail(genome, spine_root, joints)
 	if genome.has_wings():
 		_build_wings(genome, palette, spine_root, joints)
+	if genome.has_fins():
+		_build_fins(genome, palette, spine_root, joints)
 	_assemble_torso(genome, palette, spine_root, joints)
 	_build_spots(genome, palette, joints)
 
@@ -591,6 +595,87 @@ static func _build_wings(genome: CritterGenome, palette: Dictionary, spine_root:
 			joints["wing_l"] = wing
 		else:
 			joints["wing_r"] = wing
+
+
+## Fins, for bodies whose medium is water.
+##
+## Without this the has_fins gene was invisible: a swimmer rendered as a
+## legless body and nothing on screen said why it moved differently or lived
+## somewhere else. A gene that changes what an animal IS has to be something
+## you can see, or evolution stops being legible — which is the whole point of
+## drawing critters procedurally rather than from authored art.
+##
+## Three surfaces, all scaled by GENE_FIN_SPAN: a pectoral pair at the
+## shoulders, a dorsal along the back, and a tail fluke. Named FinL/FinR/
+## FinDorsal/FinFluke and grouped, so the gait animator can drive them the way
+## it drives WingL/WingR.
+static func _build_fins(genome: CritterGenome, palette: Dictionary,
+		spine_root: Node3D, joints: Dictionary) -> void:
+	var segments: Array[Node3D] = joints["spine"]
+	var radii: Array[float] = joints["spine_radii"]
+	if segments.is_empty():
+		return
+	var span: float = float(genome.genes[CritterGenome.GENE_FIN_SPAN]) * UNIT_FIN
+
+	# Pectoral pair, on the segment behind the head.
+	var attach_idx := maxi(segments.size() - 2, 0)
+	var attach: Node3D = segments[attach_idx]
+	var seg_r: float = radii[attach_idx]
+	for side in [-1.0, 1.0]:
+		var fin := Node3D.new()
+		fin.name = "Fin%s" % ("L" if side > 0.0 else "R")
+		fin.add_to_group(GROUP_FIN)
+		fin.position = Vector3(side * seg_r * 0.8, -seg_r * 0.15, 0.0)
+		# Swept back and angled down, the way a pectoral fin sits.
+		fin.rotation = Vector3(0.0, side * -0.5, side * 0.35)
+		attach.add_child(fin)
+		var blade := MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = Vector3(span, 0.02, span * 0.55)
+		blade.mesh = box
+		blade.material_override = palette["accent"]
+		blade.position = Vector3(side * span * 0.5, 0.0, 0.0)
+		fin.add_child(blade)
+		if side > 0.0:
+			joints["fin_l"] = fin
+		else:
+			joints["fin_r"] = fin
+
+	# Dorsal, on the mid-body segment.
+	var mid_idx := segments.size() / 2
+	var mid: Node3D = segments[mid_idx]
+	var mid_r: float = radii[mid_idx]
+	var dorsal := Node3D.new()
+	dorsal.name = "FinDorsal"
+	dorsal.add_to_group(GROUP_FIN)
+	dorsal.position = Vector3(0.0, mid_r * 0.9, 0.0)
+	mid.add_child(dorsal)
+	var sail := MeshInstance3D.new()
+	var sail_box := BoxMesh.new()
+	sail_box.size = Vector3(0.02, span * 0.7, span * 0.8)
+	sail.mesh = sail_box
+	sail.material_override = palette["accent"]
+	sail.position = Vector3(0.0, span * 0.35, 0.0)
+	dorsal.add_child(sail)
+	joints["fin_dorsal"] = dorsal
+
+	# Fluke, on the last tail joint if there is one, or the rear segment.
+	var tail: Array[Node3D] = joints.get("tail", [] as Array[Node3D])
+	var fluke_parent: Node3D = tail[tail.size() - 1] if not tail.is_empty() else segments[0]
+	var fluke := Node3D.new()
+	fluke.name = "FinFluke"
+	fluke.add_to_group(GROUP_FIN)
+	fluke_parent.add_child(fluke)
+	var blade_v := MeshInstance3D.new()
+	var fluke_box := BoxMesh.new()
+	# Upright, not flat: a fish beats its tail side to side, so the surface
+	# that pushes water has to stand vertically.
+	fluke_box.size = Vector3(0.02, span * 1.1, span * 0.75)
+	blade_v.mesh = fluke_box
+	blade_v.material_override = palette["accent"]
+	blade_v.position = Vector3(0.0, 0.0, -span * 0.35)
+	fluke.add_child(blade_v)
+	joints["fin_fluke"] = fluke
 
 
 # ── Coat spots ────────────────────────────────────────────────────────────────

@@ -35,6 +35,7 @@ var view_sync := ViewSyncSystem.new()
 var breeding := BreedingSystem.new()
 var predation := PredationSystem.new()
 var flocking := FlockingSystem.new()
+var flight := FlightSystem.new()
 
 ## Shared neighbour index. Predation and flocking ask the same spatial
 ## question, so they share one grid rebuilt on a coarse timer.
@@ -101,6 +102,7 @@ func _initialize() -> void:
 		breeding.seed_value = GameConfig.world_seed ^ 0xb2eed
 		breeding.registry = species
 		breeding.interbreed_distance = _config.breed_interbreed_distance
+		breeding.sea_level = SharedWorld.sea_level
 		scheduler.register(&"breeding", breeding.tick, EcsScheduler.Phase.SIM, 55)
 	# Right after movement: velocity integration is planar, so actors need
 	# re-seating on the surface before anything reads their position.
@@ -123,6 +125,13 @@ func _initialize() -> void:
 		# rather than replacing it — a herd that steers before its members
 		# have decided anything cannot flee.
 		scheduler.register(&"flocking", flocking.tick, EcsScheduler.Phase.SIM, 37)
+	# Last word on velocity, after every system that writes it. See
+	# _confine_to_medium for why the ordering is the whole fix.
+	scheduler.register(&"confine", _confine_to_medium, EcsScheduler.Phase.SIM, 38)
+	if _config.flight_enabled:
+		flight.land_energy = _config.flight_land_energy
+		# Before grounding, which applies the height this decides.
+		scheduler.register(&"flight", flight.tick, EcsScheduler.Phase.SIM, 24)
 	if _config.view_sync_enabled:
 		scheduler.register(&"view_sync", view_sync.tick, EcsScheduler.Phase.VIEW, 70)
 
@@ -392,11 +401,12 @@ func _spawn_critters(chunk_data: ChunkData, origin: Vector3,
 		# Which medium this animal lives in, from its own content. The
 		# grounding pass reads it; without it a fish sits in the seafloor and
 		# a bird walks.
-		if entry != null:
-			var locomotion := CLocomotion.from_entry(entry, _populate_rng)
-			world.add_component(entity, locomotion)
-			if locomotion.hover_height > 0.0:
-				transform.position.y += locomotion.hover_height
+		var locomotion := CLocomotion.from_genome(
+			genome_comp.genome if genome_comp != null else null,
+			entry, _populate_rng)
+		world.add_component(entity, locomotion)
+		transform.position.y = CLocomotion.rest_height(locomotion.medium,
+			locomotion.hover_height, height, sea)
 		if record != null and record.flocks:
 			world.add_component(entity, CGroup.from_record(record))
 		if genome_comp != null:
@@ -440,7 +450,11 @@ func _individual_genome(entry: FaunaEntry) -> CGenome:
 	var genome := record.founder.cloned(_populate_rng)
 	genome.generation = 0
 	if entry.genome_variance > 0.0:
-		genome.mutate(_populate_rng, entry.genome_variance)
+		# Individuals vary, they do not change medium. Letting spawn variance
+		# flip fins or wings produced deer that were born aquatic on dry land
+		# and jellyfish born to walk, in the same generation as their founder.
+		# Medium change belongs to breeding, across generations.
+		genome.mutate(_populate_rng, entry.genome_variance, false)
 	return CGenome.from_genome(genome)
 
 
@@ -578,37 +592,45 @@ func _ground_agents(world: EcsWorld, _delta: float, frame: int) -> void:
 		if height == INF:
 			continue
 		var locomotion := world.get_component(entity, &"CLocomotion") as CLocomotion
-		if locomotion == null or locomotion.medium == CLocomotion.Medium.LAND:
-			transform.position.y = height
-			# A walker that has waded out of its depth is turned back. The AI
-			# writes planar intent with no idea the sea exists, so without this
-			# deer and rabbits walk out to sea and keep going.
-			if sea - height > _config.wade_depth:
-				_steer_toward(world, entity, transform, true)
-			continue
-		if locomotion.medium == CLocomotion.Medium.AIR:
-			# Fliers hold their cruising height over whatever is underneath,
-			# and never below the water surface.
-			transform.position.y = maxf(height, sea) + locomotion.hover_height
-			continue
-		_swim(world, entity, transform, height, sea, locomotion)
+		var medium := locomotion.medium if locomotion != null else CLocomotion.Medium.LAND
+		var hover := locomotion.hover_height if locomotion != null else 0.0
+		transform.position.y = CLocomotion.rest_height(medium, hover, height, sea)
 
 
-## Keep a swimmer between the seafloor and the surface, and in the water.
+## Keep every animal in the medium its body is built for.
 ##
-## Two things have to hold. It sits `hover_height` off the bottom but stays
-## submerged, so a fish in shallows rides lower rather than breaching. And it
-## is turned back where the water gets shallower than its authored minimum —
-## the AI writes planar intent with no idea the sea has edges, so without this
-## a shoal wanders up the beach and stands on the sand.
-func _swim(world: EcsWorld, entity: int, transform: CTransform, ground: float,
-		sea: float, locomotion: CLocomotion) -> void:
-	if sea - ground < locomotion.min_water_depth:
-		_steer_toward(world, entity, transform, false)
-	# Submerged, and off the bottom by as much as the water allows: a fish in
-	# the shallows rides lower rather than breaching.
-	var ceiling := sea - 0.25
-	transform.position.y = maxf(minf(ground + locomotion.hover_height, ceiling), ground)
+## Runs AFTER the AI, flocking and predation, and that ordering is the whole
+## point. The utility AI writes planar movement intent with no idea the sea
+## exists, so this correction has to be the last word on velocity — applied
+## before the AI instead, it was overwritten every single tick and did nothing.
+## Measured with it running at the grounding step: a fish had walked 19 m up a
+## hillside and a rabbit was standing 2 m under water.
+func _confine_to_medium(world: EcsWorld, _delta: float, frame: int) -> void:
+	if _confine_cache == null:
+		_confine_cache = world.query([&"CTransform", &"CVelocity", &"CLocomotion"])
+	var sea := SharedWorld.sea_level
+	for entity in world.frame_entities(_confine_cache, frame):
+		var transform := world.get_component(entity, &"CTransform") as CTransform
+		var locomotion := world.get_component(entity, &"CLocomotion") as CLocomotion
+		if transform == null or locomotion == null:
+			continue
+		var ground := _surface_height(transform.position.x, transform.position.z)
+		if ground == INF:
+			continue
+		match locomotion.medium:
+			CLocomotion.Medium.WATER:
+				# Too shallow: head back down the seabed slope.
+				if sea - ground < locomotion.min_water_depth:
+					_steer_toward(world, entity, transform, false)
+			CLocomotion.Medium.LAND:
+				# Out of its depth: head back up the slope.
+				if sea - ground > _config.wade_depth:
+					_steer_toward(world, entity, transform, true)
+			_:
+				pass
+
+
+var _confine_cache: EcsWorld.QueryCache = null
 
 
 ## Turn an actor along the seabed slope, keeping its speed.

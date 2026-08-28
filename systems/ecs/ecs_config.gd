@@ -16,6 +16,12 @@ extends Node
 
 ## Herds, flocks, shoals and packs steer with their neighbours.
 @export var flocking_enabled := true
+
+## Winged animals take off, cruise and land instead of holding one height.
+@export var flight_enabled := true
+
+## Energy below which a flier comes down to rest, 0..1.
+@export_range(0.0, 1.0) var flight_land_energy := 0.35
 @export var view_sync_enabled := true
 
 ## Tier distances from the focus (camera/player), BotW A/B/C style.

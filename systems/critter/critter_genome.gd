@@ -45,6 +45,14 @@ const GENE_HAS_WINGS := &"has_wings"
 const GENE_WING_SPAN := &"wing_span"
 const GENE_WING_FLAP := &"wing_flap"
 
+## Fins are to water what wings are to air: the gene that decides which medium
+## a body lives in. Locomotion used to be an authored flag on FaunaEntry, so a
+## lineage could evolve its shape, size, gait and colour but never what it
+## moved through — and nothing that walked could ever give rise to something
+## that swam.
+const GENE_HAS_FINS := &"has_fins"
+const GENE_FIN_SPAN := &"fin_span"
+
 const GENE_HUE := &"hue"
 const GENE_SAT := &"sat"
 const GENE_VAL := &"val"
@@ -107,6 +115,8 @@ static func _ranges() -> Dictionary:
 		GENE_HAS_WINGS: Vector2(0.0, 1.0),
 		GENE_WING_SPAN: Vector2(0.8, 2.2),
 		GENE_WING_FLAP: Vector2(0.3, 0.9),
+		GENE_HAS_FINS: Vector2(0.0, 1.0),
+		GENE_FIN_SPAN: Vector2(0.4, 2.0),
 		GENE_HUE: Vector2(0.0, 1.0),
 		GENE_SAT: Vector2(0.25, 0.8),
 		GENE_VAL: Vector2(0.35, 0.8),
@@ -127,7 +137,8 @@ static func _ranges() -> Dictionary:
 static func _int_genes() -> Array:
 	return [
 		GENE_COUNT_BODY_SEGMENTS, GENE_EYE_COUNT, GENE_LEG_PAIRS,
-		GENE_TAIL_SEGMENTS, GENE_HAS_WINGS, GENE_PATTERN, GENE_GAIT_PATTERN,
+		GENE_TAIL_SEGMENTS, GENE_HAS_WINGS, GENE_HAS_FINS, GENE_PATTERN,
+		GENE_GAIT_PATTERN,
 	]
 
 
@@ -169,7 +180,7 @@ static func _archetypes() -> Dictionary:
 		&"grazer": {
 			"weight": 0.30,
 			"genes": {
-				GENE_LEG_PAIRS: 2.0, GENE_HAS_WINGS: 0.0,
+				GENE_LEG_PAIRS: 2.0, GENE_HAS_WINGS: 0.0, GENE_HAS_FINS: 0.0,
 				GENE_COUNT_BODY_SEGMENTS: 4.0, GENE_SEG_LENGTH: 0.45,
 				GENE_SEG_GIRTH: 1.1, GENE_TAPER: 0.1,
 				GENE_LEG_LENGTH: 0.9, GENE_LEG_GIRTH: 0.7,
@@ -181,7 +192,7 @@ static func _archetypes() -> Dictionary:
 		&"runner": {
 			"weight": 0.20,
 			"genes": {
-				GENE_LEG_PAIRS: 2.0, GENE_HAS_WINGS: 0.0,
+				GENE_LEG_PAIRS: 2.0, GENE_HAS_WINGS: 0.0, GENE_HAS_FINS: 0.0,
 				GENE_COUNT_BODY_SEGMENTS: 3.0, GENE_SEG_LENGTH: 0.45,
 				GENE_SEG_GIRTH: 0.8, GENE_TAPER: 0.0,
 				GENE_LEG_LENGTH: 1.4, GENE_LEG_GIRTH: 0.5,
@@ -194,7 +205,7 @@ static func _archetypes() -> Dictionary:
 		&"pouncer": {
 			"weight": 0.15,
 			"genes": {
-				GENE_LEG_PAIRS: 1.0, GENE_HAS_WINGS: 0.0,
+				GENE_LEG_PAIRS: 1.0, GENE_HAS_WINGS: 0.0, GENE_HAS_FINS: 0.0,
 				GENE_COUNT_BODY_SEGMENTS: 3.0, GENE_SEG_LENGTH: 0.4,
 				GENE_SEG_GIRTH: 1.0, GENE_TAPER: -0.1,
 				GENE_LEG_LENGTH: 1.2, GENE_LEG_GIRTH: 0.8,
@@ -206,7 +217,7 @@ static func _archetypes() -> Dictionary:
 		&"serpent": {
 			"weight": 0.20,
 			"genes": {
-				GENE_LEG_PAIRS: 0.0, GENE_HAS_WINGS: 0.0,
+				GENE_LEG_PAIRS: 0.0, GENE_HAS_WINGS: 0.0, GENE_HAS_FINS: 0.0,
 				GENE_COUNT_BODY_SEGMENTS: 6.0, GENE_SEG_LENGTH: 0.5,
 				GENE_SEG_GIRTH: 0.7, GENE_TAPER: -0.15,
 				GENE_SPINE_ARCH: 0.05, GENE_SPINE_WAVE: 0.3,
@@ -214,10 +225,23 @@ static func _archetypes() -> Dictionary:
 				GENE_GAIT_PATTERN: float(GaitPattern.PACE), GENE_GAIT_CYCLE: 1.6,
 			},
 		},
+		&"swimmer": {
+			"weight": 0.15,
+			"genes": {
+				GENE_LEG_PAIRS: 0.0, GENE_HAS_WINGS: 0.0, GENE_HAS_FINS: 1.0,
+				GENE_COUNT_BODY_SEGMENTS: 5.0, GENE_SEG_LENGTH: 0.5,
+				GENE_SEG_GIRTH: 0.9, GENE_TAPER: -0.25,
+				GENE_FIN_SPAN: 1.2, GENE_SPINE_WAVE: 0.32,
+				GENE_SNOUT_LENGTH: 0.3, GENE_TAIL_SEGMENTS: 3.0,
+				GENE_TAIL_LENGTH: 0.9,
+				GENE_GAIT_PATTERN: float(GaitPattern.PACE), GENE_GAIT_CYCLE: 1.4,
+				GENE_STRIDE_AMP: 0.35,
+			},
+		},
 		&"glider": {
 			"weight": 0.15,
 			"genes": {
-				GENE_LEG_PAIRS: 2.0, GENE_HAS_WINGS: 1.0,
+				GENE_LEG_PAIRS: 2.0, GENE_HAS_WINGS: 1.0, GENE_HAS_FINS: 0.0,
 				GENE_COUNT_BODY_SEGMENTS: 3.0, GENE_SEG_LENGTH: 0.4,
 				GENE_SEG_GIRTH: 0.7, GENE_TAPER: -0.2,
 				GENE_LEG_LENGTH: 0.6, GENE_LEG_GIRTH: 0.4,
@@ -297,7 +321,8 @@ static func _apply_archetype(genome: CritterGenome, archetype: StringName,
 	var chosen: Dictionary = plans.get(archetype, plans[&"grazer"])
 	var targets: Dictionary = chosen["genes"]
 	for gene in targets:
-		if gene == GENE_LEG_PAIRS or gene == GENE_HAS_WINGS:
+		if gene == GENE_LEG_PAIRS or gene == GENE_HAS_WINGS \
+				or gene == GENE_HAS_FINS:
 			genome.genes[gene] = clamp_gene(gene, float(targets[gene]))
 		else:
 			var current: float = float(genome.genes[gene])
@@ -312,6 +337,21 @@ static func _apply_archetype(genome: CritterGenome, archetype: StringName,
 			float(genome.genes[GENE_LEG_LENGTH]) * 0.65)
 		genome.genes[GENE_WING_SPAN] = clamp_gene(GENE_WING_SPAN,
 			float(genome.genes[GENE_WING_SPAN]) * 1.15)
+	# Coherence: a body commits to one medium. Both sets at once is not a
+	# flying fish, it is a shape with two propulsion systems and no plan;
+	# whichever is better developed wins.
+	if genome.genes[GENE_HAS_WINGS] >= 0.5 and genome.genes[GENE_HAS_FINS] >= 0.5:
+		if float(genome.genes[GENE_WING_SPAN]) >= float(genome.genes[GENE_FIN_SPAN]):
+			genome.genes[GENE_HAS_FINS] = 0.0
+		else:
+			genome.genes[GENE_HAS_WINGS] = 0.0
+	# Coherence: a swimmer streamlines. Legs go, the spine drives.
+	if genome.genes[GENE_HAS_FINS] >= 0.5:
+		genome.genes[GENE_LEG_PAIRS] = 0.0
+		genome.genes[GENE_SPINE_WAVE] = clamp_gene(GENE_SPINE_WAVE,
+			maxf(float(genome.genes[GENE_SPINE_WAVE]), 0.18))
+		genome.genes[GENE_FIN_SPAN] = clamp_gene(GENE_FIN_SPAN,
+			float(genome.genes[GENE_FIN_SPAN]) * 1.1)
 	# Coherence: legless builds are longer and more snake-like.
 	if genome.genes[GENE_LEG_PAIRS] < 0.5:
 		genome.genes[GENE_COUNT_BODY_SEGMENTS] = clamp_gene(GENE_COUNT_BODY_SEGMENTS,
@@ -340,15 +380,25 @@ func cloned(rng: RandomNumberGenerator) -> CritterGenome:
 
 
 ## In-place gaussian drift on proportions/angles, ±1 steps on counts, rare
-## flips on pattern/wing genes. rate scales both probability and magnitude.
-func mutate(rng: RandomNumberGenerator, rate: float = 1.0) -> void:
+## flips on pattern/wing/fin genes. rate scales both probability and magnitude.
+##
+## `allow_medium_change` gates the two genes that decide what an animal moves
+## through. Breeding leaves it on, so a lineage CAN evolve into the water or
+## the air over generations. Spawn-time variation turns it off, because that
+## variation is meant to make individuals of a species differ, not to make
+## them different animals: measured with it on, a freshly populated world had
+## deer with fins standing in the sea and a jellyfish with legs on a beach,
+## 16 animals on the wrong side of the water line before anything had bred.
+func mutate(rng: RandomNumberGenerator, rate: float = 1.0,
+		allow_medium_change: bool = true) -> void:
 	var int_genes := _int_genes()
 	for gene in genes.keys():
 		var current: float = float(genes[gene])
 		if gene in int_genes:
-			if gene == GENE_HAS_WINGS:
-				# Rare wing gain/loss — a big morphological jump.
-				if rng.randf() < 0.04 * rate:
+			if gene == GENE_HAS_WINGS or gene == GENE_HAS_FINS:
+				# Rare gain/loss of wings or fins — the largest jump a body
+				# plan can make, and the one that changes its medium.
+				if allow_medium_change and rng.randf() < 0.04 * rate:
 					genes[gene] = 1.0 - current
 				continue
 			if gene == GENE_PATTERN or gene == GENE_GAIT_PATTERN:
@@ -388,9 +438,24 @@ static func crossover(a: CritterGenome, b: CritterGenome, rng: RandomNumberGener
 
 
 ## Keep random combinations from fighting themselves visually.
+## Keep a mutated body plan physically coherent.
+##
+## Runs after every mutation and crossover, so the rules here are what stop
+## selection from producing shapes that cannot work. Medium exclusivity is the
+## important one: mutation flips has_wings and has_fins independently, and an
+## animal carrying both would be handed a medium by whichever check ran first.
 func _coerce_coherence() -> void:
+	if float(genes[GENE_HAS_WINGS]) >= 0.5 and float(genes[GENE_HAS_FINS]) >= 0.5:
+		if float(genes[GENE_WING_SPAN]) >= float(genes[GENE_FIN_SPAN]):
+			genes[GENE_HAS_FINS] = 0.0
+		else:
+			genes[GENE_HAS_WINGS] = 0.0
 	if float(genes[GENE_HAS_WINGS]) >= 0.5:
 		genes[GENE_LEG_LENGTH] = clamp_gene(GENE_LEG_LENGTH, float(genes[GENE_LEG_LENGTH]) * 0.8)
+	if float(genes[GENE_HAS_FINS]) >= 0.5:
+		genes[GENE_LEG_PAIRS] = 0.0
+		genes[GENE_SPINE_WAVE] = clamp_gene(GENE_SPINE_WAVE,
+			maxf(float(genes[GENE_SPINE_WAVE]), 0.18))
 	if float(genes[GENE_LEG_PAIRS]) < 0.5:
 		genes[GENE_SPINE_WAVE] = clamp_gene(GENE_SPINE_WAVE, float(genes[GENE_SPINE_WAVE]) * 1.2)
 
@@ -464,7 +529,68 @@ func derived_speed() -> float:
 		speed = 1.0 + pair_factor * leg_power - body_mass() * 0.25
 	if has_wings():
 		speed = maxf(speed, 1.0) * 0.6 + float(genes[GENE_WING_SPAN]) * 1.1
+	if has_fins():
+		# A swimmer is driven by its spine and fins. Legless bodies scored
+		# almost zero on the leg term above, so without this every fish came
+		# out at the 0.4 floor and a shoal barely moved.
+		var thrust: float = float(genes.get(GENE_FIN_SPAN, 1.0)) * 1.3
+		thrust += float(genes[GENE_SPINE_WAVE]) * 4.0
+		thrust += float(genes[GENE_GAIT_CYCLE]) * 0.5
+		speed = 1.0 + thrust - body_mass() * 0.15
 	return clampf(speed, 0.4, 8.0)
+
+
+func has_fins() -> bool:
+	return float(genes.get(GENE_HAS_FINS, 0.0)) >= 0.5
+
+
+## Which medium this body is built for. The single place the answer lives, so
+## spawning, breeding and the grounding pass cannot disagree about it.
+func medium_name() -> StringName:
+	if has_fins():
+		return &"water"
+	if has_wings():
+		return &"air"
+	return &"land"
+
+
+## Metres a swimmer holds above the seafloor.
+##
+## Bigger bodies cruise higher: a whale that hugged the bottom the way a
+## goby does would be half buried in it. Scales with mass and fin span, both
+## of which are heritable, so a lineage that evolves larger also evolves off
+## the bottom.
+func derived_swim_height() -> float:
+	var height := 0.35 + body_mass() * 0.9
+	height += float(genes.get(GENE_FIN_SPAN, 1.0)) * 0.4
+	return clampf(height, 0.3, 6.0)
+
+
+## Metres a flier holds above the ground when cruising.
+##
+## Wing span lifts, mass pulls down. This is why a bat and an albatross with
+## the same wings do not fly at the same height, and it is derived rather than
+## authored so a lineage that evolves broader wings genuinely climbs higher.
+func derived_cruise_height() -> float:
+	var lift := float(genes.get(GENE_WING_SPAN, 1.0)) * 3.4
+	var height := 1.2 + lift - body_mass() * 1.1
+	return clampf(height, 1.0, 14.0)
+
+
+## Metres per second of climb and descent. A light body with big wings gets
+## off the ground fast; a heavy one labours.
+func derived_climb_rate() -> float:
+	var rate := float(genes.get(GENE_WING_SPAN, 1.0)) * 1.5
+	rate += float(genes.get(GENE_WING_FLAP, 0.5)) * 1.2
+	return clampf(rate / maxf(body_mass(), 0.2), 0.6, 6.0)
+
+
+## Seconds this body can stay airborne before it has to come down.
+## Flap-driven flight is expensive; a broad wing that glides lasts longer.
+func derived_flight_endurance() -> float:
+	var endurance := 5.0 + float(genes.get(GENE_WING_SPAN, 1.0)) * 9.0
+	endurance -= float(genes.get(GENE_WING_FLAP, 0.5)) * 4.0
+	return clampf(endurance / maxf(body_mass(), 0.25), 4.0, 45.0)
 
 
 ## Toughness scaling with body volume (≈ 3 – 15).
@@ -543,14 +669,20 @@ static func from_dict(data: Dictionary) -> CritterGenome:
 ## Compact multi-line summary for the Body Lab HUD.
 func summary() -> String:
 	var lines: PackedStringArray = []
-	lines.append("%s  gen %d  %s" % [species_name(), generation, gait_name()])
+	lines.append("%s  gen %d  %s  [%s]" % [species_name(), generation,
+		gait_name(), str(medium_name())])
 	lines.append("body: %d segs, mass %.2f" % [segment_count(), body_mass()])
 	lines.append("legs: %d pairs, len %.2f, knee %.2f rad, splay %.2f rad" % [
 		leg_pairs(), float(genes[GENE_LEG_LENGTH]),
 		float(genes[GENE_KNEE_BEND]), float(genes[GENE_STANCE_SPLAY])])
 	if has_wings():
-		lines.append("wings: span %.2f, flap %.2f rad" % [
-			float(genes[GENE_WING_SPAN]), float(genes[GENE_WING_FLAP])])
+		lines.append("wings: span %.2f, flap %.2f rad -> cruise %.1f m, climb %.1f m/s, %.0f s aloft" % [
+			float(genes[GENE_WING_SPAN]), float(genes[GENE_WING_FLAP]),
+			derived_cruise_height(), derived_climb_rate(),
+			derived_flight_endurance()])
+	if has_fins():
+		lines.append("fins: span %.2f -> swims %.1f m off the bottom" % [
+			float(genes[GENE_FIN_SPAN]), derived_swim_height()])
 	lines.append("gait: cycle %.2f Hz, stride %.2f rad, wave %.2f rad" % [
 		float(genes[GENE_GAIT_CYCLE]), float(genes[GENE_STRIDE_AMP]),
 		float(genes[GENE_SPINE_WAVE])])
