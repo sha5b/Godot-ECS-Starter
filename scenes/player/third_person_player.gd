@@ -9,6 +9,9 @@ const ACTION_JUMP := &"player_jump"
 const ACTION_SPRINT := &"player_sprint"
 const ACTION_CLIMB := &"player_climb"
 
+# Every action above is declared in Project Settings > Input Map. Rebinding
+# is a settings edit, not a code edit.
+
 @export_group("Movement")
 @export var walk_speed: float = 6.0
 @export var sprint_speed: float = 9.5
@@ -63,7 +66,6 @@ var _mantle_timer: float = 0.0
 
 
 func _ready() -> void:
-	_ensure_input_actions()
 	_gravity = float(ProjectSettings.get_setting("physics/3d/default_gravity", 9.8)) * gravity_scale
 	floor_snap_length = ground_snap_length
 	floor_max_angle = deg_to_rad(max_walkable_slope_degrees)
@@ -99,11 +101,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		)
 		_apply_camera_rotation()
 
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		if not _mouse_captured:
-			_capture_mouse()
+	if event.is_action_pressed(&"world_select") and not _mouse_captured:
+		_capture_mouse()
 
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
+	if event.is_action_pressed(&"ui_cancel"):
 		if _mouse_captured:
 			_release_mouse()
 		else:
@@ -373,38 +374,3 @@ func _release_mouse() -> void:
 func _sync_shared_camera_state() -> void:
 	if is_instance_valid(_camera):
 		SharedWorld.publish_camera_focus(_camera.global_position)
-
-
-func _ensure_input_actions() -> void:
-	if not InputMap.has_action(ACTION_MOVE_FORWARD):
-		InputMap.add_action(ACTION_MOVE_FORWARD)
-		_add_key_binding(ACTION_MOVE_FORWARD, KEY_W)
-		_add_key_binding(ACTION_MOVE_FORWARD, KEY_UP)
-	if not InputMap.has_action(ACTION_MOVE_BACK):
-		InputMap.add_action(ACTION_MOVE_BACK)
-		_add_key_binding(ACTION_MOVE_BACK, KEY_S)
-		_add_key_binding(ACTION_MOVE_BACK, KEY_DOWN)
-	if not InputMap.has_action(ACTION_MOVE_LEFT):
-		InputMap.add_action(ACTION_MOVE_LEFT)
-		_add_key_binding(ACTION_MOVE_LEFT, KEY_A)
-		_add_key_binding(ACTION_MOVE_LEFT, KEY_LEFT)
-	if not InputMap.has_action(ACTION_MOVE_RIGHT):
-		InputMap.add_action(ACTION_MOVE_RIGHT)
-		_add_key_binding(ACTION_MOVE_RIGHT, KEY_D)
-		_add_key_binding(ACTION_MOVE_RIGHT, KEY_RIGHT)
-	if not InputMap.has_action(ACTION_JUMP):
-		InputMap.add_action(ACTION_JUMP)
-		_add_key_binding(ACTION_JUMP, KEY_SPACE)
-	if not InputMap.has_action(ACTION_SPRINT):
-		InputMap.add_action(ACTION_SPRINT)
-		_add_key_binding(ACTION_SPRINT, KEY_SHIFT)
-	if not InputMap.has_action(ACTION_CLIMB):
-		InputMap.add_action(ACTION_CLIMB)
-		_add_key_binding(ACTION_CLIMB, KEY_E)
-
-
-func _add_key_binding(action_name: StringName, keycode: Key) -> void:
-	var key_event := InputEventKey.new()
-	key_event.keycode = keycode
-	key_event.physical_keycode = keycode
-	InputMap.action_add_event(action_name, key_event)

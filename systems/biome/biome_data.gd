@@ -50,6 +50,30 @@ extends Node
 ## How densely fauna spawns in this biome (multiplier, 0 = none)
 @export var fauna_density_multiplier: float = 1.0
 
+@export_group("Ground Cover")
+## Per-biome tuning for the FoliageSystem's shader ground cover.
+##
+## These used to be `match biome_name:` tables inside foliage_system.gd, so
+## every new biome scene needed a code edit before it grew any grass. They
+## are inspector values now: a new biome renders with these defaults and is
+## tuned here, not in the renderer.
+
+## How lush the ground cover reads (shader input, 0 = sparse, 1 = jungle).
+@export_range(0.0, 1.0) var foliage_lushness: float = 0.55
+
+## How dry/yellowed the ground cover reads (shader input).
+@export_range(0.0, 1.0) var foliage_dryness: float = 0.22
+
+## Multiplies foliage instance size in this biome.
+@export_range(0.25, 2.0) var foliage_scale_multiplier: float = 1.0
+
+## Added to this biome's computed foliage density score (can be negative).
+@export_range(-1.0, 1.0) var foliage_density_bonus: float = 0.0
+
+## Relative pick weight per foliage sprite in the atlas, one entry per
+## sprite. All-zero or empty falls back to a uniform pick.
+@export var foliage_sprite_weights: PackedFloat32Array = PackedFloat32Array([1.0, 1.0, 1.0, 1.0])
+
 @export_group("Audio / FX")
 ## Optional ambient sound for this biome (e.g. wind, birds, insects)
 @export var ambient_sound: AudioStream
@@ -73,3 +97,21 @@ func score(temperature: float, moisture: float, height_normalized: float) -> flo
 	var h_score := 1.0 - (h_dist / height_tolerance)
 
 	return t_score * m_score * h_score
+
+
+## Weighted pick of a ground-cover sprite index for this biome.
+func pick_foliage_sprite(rng: RandomNumberGenerator, sprite_count: int) -> int:
+	if sprite_count <= 0:
+		return 0
+	var total := 0.0
+	for i in mini(foliage_sprite_weights.size(), sprite_count):
+		total += maxf(foliage_sprite_weights[i], 0.0)
+	if total <= 0.0:
+		return rng.randi_range(0, sprite_count - 1)
+	var roll := rng.randf() * total
+	var cumulative := 0.0
+	for i in mini(foliage_sprite_weights.size(), sprite_count):
+		cumulative += maxf(foliage_sprite_weights[i], 0.0)
+		if roll <= cumulative:
+			return i
+	return 0

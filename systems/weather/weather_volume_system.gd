@@ -7,8 +7,8 @@ const BIOME_SYSTEM_SCRIPT = preload("res://systems/biome/biome_system.gd")
 const CHUNK_MANAGER_SCRIPT = preload("res://systems/base/chunk_manager.gd")
 
 var _config: WeatherVolumeConfig
-var _weather_system: BaseSystem
-var _biome_system: BaseSystem
+var _weather_system: WeatherSystem
+var _biome_system: BiomeSystem
 var _chunk_manager: BaseSystem
 var _environment: Environment
 var _update_timer: float = 0.0
@@ -26,8 +26,8 @@ func _initialize() -> void:
 		push_warning("[WeatherVolumeSystem] No WeatherVolumeConfig child found — using defaults")
 		_config = WeatherVolumeConfig.new()
 
-	_weather_system = _find_system_by_type(WEATHER_SYSTEM_SCRIPT)
-	_biome_system = _find_system_by_type(BIOME_SYSTEM_SCRIPT)
+	_weather_system = _find_system_by_type(WEATHER_SYSTEM_SCRIPT) as WeatherSystem
+	_biome_system = _find_system_by_type(BIOME_SYSTEM_SCRIPT) as BiomeSystem
 	_chunk_manager = _find_system_by_type(CHUNK_MANAGER_SCRIPT)
 	_ensure_volumetric_fog_environment()
 
@@ -235,17 +235,17 @@ func _sample_heightmap_center(heightmap: PackedFloat32Array) -> float:
 
 func _get_local_rain(world_x: float, world_z: float) -> float:
 	if not _weather_system:
-		_weather_system = _find_system_by_type(WEATHER_SYSTEM_SCRIPT)
-	if _weather_system and _weather_system.has_method("get_local_weather"):
+		_weather_system = _find_system_by_type(WEATHER_SYSTEM_SCRIPT) as WeatherSystem
+	if _weather_system:
 		return _weather_system.get_local_weather(world_x, world_z)
 	return SharedWorld.rain_intensity
 
 
 func _get_biome_name(world_x: float, world_z: float, terrain_y: float) -> StringName:
 	if not _biome_system:
-		_biome_system = _find_system_by_type(BIOME_SYSTEM_SCRIPT)
-	if _biome_system and _biome_system.has_method("get_biome_at_world") and _biome_system.has_method("get_biome_name"):
-		var biome_idx: int = _biome_system.get_biome_at_world(world_x, world_z, terrain_y, SharedWorld.sea_level, SharedWorld.height_scale)
+		_biome_system = _find_system_by_type(BIOME_SYSTEM_SCRIPT) as BiomeSystem
+	if _biome_system:
+		var biome_idx := _biome_system.get_biome_at_world(world_x, world_z, terrain_y, SharedWorld.sea_level, SharedWorld.height_scale)
 		return _biome_system.get_biome_name(biome_idx)
 	return SharedWorld.active_biome_name
 

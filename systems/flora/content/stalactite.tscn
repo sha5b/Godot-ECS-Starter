@@ -12,7 +12,7 @@ radial_segments = 6
 albedo_color = Color(0.48, 0.45, 0.40, 1)
 roughness = 0.88
 
-[node name="Stalactite" type="Node"]
+[node name="Stalactite" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"stalactite"
 spawn_weight = 1.5

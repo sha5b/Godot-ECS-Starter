@@ -44,3 +44,18 @@ extends Node
 @export var roughness: float = 0.06
 
 @export var metallic: float = 0.12
+
+@export_group("Sea Outlet")
+## Distance (world units above sea level) over which a river hands its
+## surface over to the ocean.
+##
+## The river surface is clamped up to sea level at the mouth, so it lands
+## exactly coplanar with the ocean plane. Two coplanar transparent sheets
+## z-fight and read as a hard seam between two different-looking waters. Over
+## this band the river fades out and the ocean takes the surface, so the two
+## bodies join as one.
+@export_range(0.5, 24.0) var outlet_blend_distance: float = 6.0
+
+## Extra downward offset applied to the river surface as it enters the sea,
+## so the last metres pass cleanly under the ocean plane.
+@export_range(0.0, 0.5) var outlet_sink: float = 0.06

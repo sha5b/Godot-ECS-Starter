@@ -21,6 +21,7 @@ var _ridged_noise: FastNoiseLite
 var _warp_noise_x: FastNoiseLite
 var _warp_noise_z: FastNoiseLite
 var _valley_noise: FastNoiseLite
+var _orogeny_noise: FastNoiseLite
 var _seafloor_detail_noise: FastNoiseLite
 var _seafloor_macro_noise: FastNoiseLite
 var _shoreline_noise: FastNoiseLite
@@ -33,7 +34,7 @@ var _traversal_noise: FastNoiseLite
 
 var _config: TerrainConfig
 var _terrain_material: ShaderMaterial
-var _geo_system
+var _geo_system: GeoSystem
 var _chunk_manager: ChunkManager
 
 var _chunk_meshes: Dictionary = {}
@@ -42,6 +43,9 @@ var _chunk_debug_nodes: Dictionary = {}
 var _chunk_bodies: Dictionary = {}
 
 var _mc_tri_table: Array = []
+
+## Continent-noise value at the coastline, solved in _setup_noise().
+var _continent_sea_threshold: float = 0.0
 
 
 func _initialize() -> void:
@@ -54,6 +58,7 @@ func _initialize() -> void:
 		_config = TerrainConfig.new()
 
 	_setup_noise()
+	_continent_sea_threshold = _solve_continent_sea_threshold()
 	_setup_material()
 	_mc_tri_table = MarchingCubesTables.get_tri_table()
 
@@ -74,9 +79,9 @@ func system_process(_delta: float) -> void:
 	_update_terrain_material_params()
 
 
-func _get_geo_system():
+func _get_geo_system() -> GeoSystem:
 	if not _geo_system:
-		_geo_system = _find_system_by_type(GEO_SYSTEM_SCRIPT)
+		_geo_system = _find_system_by_type(GEO_SYSTEM_SCRIPT) as GeoSystem
 	return _geo_system
 
 
@@ -87,10 +92,25 @@ func _get_chunk_manager() -> ChunkManager:
 
 
 func _setup_noise() -> void:
+	# Every FastNoiseLite defaults to 5-octave FBM. Layers that are meant to
+	# be smooth macro fields must say so, or they quietly carry detail-scale
+	# octaves and stop being macro fields at all.
 	_continent_noise = FastNoiseLite.new()
 	_continent_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	_continent_noise.seed = GameConfig.world_seed
 	_continent_noise.frequency = _config.continent_frequency
+	_continent_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	_continent_noise.fractal_octaves = _config.continent_octaves
+	_continent_noise.fractal_lacunarity = 2.0
+	_continent_noise.fractal_gain = 0.45
+
+	_orogeny_noise = FastNoiseLite.new()
+	_orogeny_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_orogeny_noise.seed = GameConfig.world_seed + 800
+	_orogeny_noise.frequency = _config.orogeny_frequency
+	_orogeny_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	_orogeny_noise.fractal_octaves = 2
+	_orogeny_noise.fractal_gain = 0.4
 
 	_detail_noise = FastNoiseLite.new()
 	_detail_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
@@ -113,16 +133,20 @@ func _setup_noise() -> void:
 	_warp_noise_x.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	_warp_noise_x.seed = GameConfig.world_seed + 300
 	_warp_noise_x.frequency = _config.warp_frequency
+	_warp_noise_x.fractal_type = FastNoiseLite.FRACTAL_NONE
 
 	_warp_noise_z = FastNoiseLite.new()
 	_warp_noise_z.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	_warp_noise_z.seed = GameConfig.world_seed + 400
 	_warp_noise_z.frequency = _config.warp_frequency
+	_warp_noise_z.fractal_type = FastNoiseLite.FRACTAL_NONE
 
 	_valley_noise = FastNoiseLite.new()
 	_valley_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	_valley_noise.seed = GameConfig.world_seed + 500
 	_valley_noise.frequency = _config.valley_frequency
+	_valley_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	_valley_noise.fractal_octaves = 2
 
 	_seafloor_detail_noise = FastNoiseLite.new()
 	_seafloor_detail_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
@@ -333,12 +357,10 @@ func _generate_heightmap(coord: Vector2i) -> PackedFloat32Array:
 			var wz := origin_z + z * step
 
 			var sample := _warp_sample_coords(wx, wz)
-			var blended := _sample_base_terrain(sample.x, sample.y)
-			blended += _sample_ridged_contribution(sample.x, sample.y, blended)
-
-			var h := blended * hs
+			var belt := _sample_orogeny_mask(sample.x, sample.y)
+			var h := _sample_terrain_shape(sample.x, sample.y) * hs
 			h = _apply_valley_carving(h, sample.x, sample.y, sea, hs)
-			h = _apply_plateau_flattening(h, sea, hs)
+			h = _apply_plateau_flattening(h, sea, hs, belt)
 			h = _apply_traversal_shaping(h, wx, wz, sample.x, sample.y, sea, hs)
 			h = _apply_shoreline_gradient(h, wx, wz, sea)
 			h = _apply_ocean_floor(h, wx, wz, sample.x, sample.y, sea, hs)
@@ -357,23 +379,94 @@ func _warp_sample_coords(wx: float, wz: float) -> Vector2:
 	return Vector2(wx, wz)
 
 
-## Sample continent + detail noise and blend by weight
-func _sample_base_terrain(sx: float, sz: float) -> float:
-	var continent := _continent_noise.get_noise_2d(sx, sz)
+## Normalized terrain shape at a (warped) sample point. Multiply by
+## height_scale for world height. Negative = ocean basin, positive = land.
+##
+## The layers do different jobs and must not be summed as equals:
+##
+##   continentality  decides WHERE land is (continent scale, 1-2 octaves)
+##   land mask       ramps 0 -> 1 across the coast, so nothing is added offshore
+##   detail          local relief, only on land, curved so plains dominate
+##   orogeny belt    decides WHERE mountains are — long curved chains
+##   ridged          the mountains themselves, only inside a belt
+##
+## The previous version added continent noise and detail noise at equal
+## weight and then added ridged noise almost everywhere. Summing symmetric
+## noise fields gives a symmetric height distribution, which is the "rolling
+## hills from horizon to horizon, and the land/sea split is a 50/50 blob
+## threshold" look — measured at 59.8% land with 0.4% of it in the top two
+## elevation deciles.
+func _sample_terrain_shape(sx: float, sz: float) -> float:
+	var continentality := _continent_noise.get_noise_2d(sx, sz) - _continent_sea_threshold
+	# The ramp starts AT the solved threshold, not straddling it, so the
+	# coastline sits exactly where continent_land_fraction says it does and
+	# the ramp reads as the coastal plain rising inland.
+	var shelf := maxf(_config.continent_shelf_width, 0.001)
+	var land := smoothstep(0.0, shelf, continentality)
 	var detail := _detail_noise.get_noise_2d(sx, sz)
+
+	if land <= 0.001:
+		# Ocean basin. Depth tracks continentality so basins deepen away from
+		# the shelf; _apply_ocean_floor reshapes this into shelf/slope/abyss.
+		return continentality * _config.continent_weight + detail * 0.10
+
 	var cw := _config.continent_weight
-	return continent * cw + detail * (1.0 - cw)
+	# `inland` is 0 at the waterline and 1 well inside a landmass, so coasts
+	# always meet the sea at sea level instead of stepping out of it.
+	var inland := land * land
+	var base := maxf(inland * cw + detail * (1.0 - cw) * land, 0.0)
+	var shaped := pow(base, _config.land_elevation_power)
+	return shaped * land + _sample_ridged_contribution(sx, sz, land)
 
 
-## Sample ridged multifractal and return additive contribution
-func _sample_ridged_contribution(sx: float, sz: float, continent_blend: float) -> float:
-	if not _config.ridged_enabled:
+## Mountain-belt mask in [0, 1].
+##
+## Real ranges are long curved chains along plate margins. Taking 1 - |field|
+## of a very low frequency noise selects its ZERO CROSSINGS, which are
+## exactly such continuous curved bands — so mountains form ranges with
+## passes and foothills instead of appearing wherever ridged noise is high.
+func _sample_orogeny_mask(sx: float, sz: float) -> float:
+	if not _config.orogeny_enabled:
+		return 1.0
+	var band := 1.0 - absf(_orogeny_noise.get_noise_2d(sx, sz)) \
+		/ maxf(_config.orogeny_coverage, 0.01)
+	return pow(clampf(band, 0.0, 1.0), _config.orogeny_belt_sharpness)
+
+
+## The mountain layer: ridged multifractal, gated by land and by belt.
+func _sample_ridged_contribution(sx: float, sz: float, land_mask: float) -> float:
+	if not _config.ridged_enabled or land_mask <= 0.001:
 		return 0.0
-	var ridged_raw := _ridged_noise.get_noise_2d(sx, sz)
-	var ridged_01 := (ridged_raw + 1.0) * 0.5
+	var ridged_01 := (_ridged_noise.get_noise_2d(sx, sz) + 1.0) * 0.5
 	var ridged_shaped := pow(ridged_01, _config.ridged_power)
-	var ridge_mask := clampf((continent_blend / _config.continent_weight + 0.2) * 2.0, 0.0, 1.0)
-	return ridged_shaped * _config.ridged_weight * ridge_mask
+	return ridged_shaped * _config.ridged_weight * land_mask \
+		* _sample_orogeny_mask(sx, sz)
+
+
+## Continent-noise value that lands exactly on the coastline.
+##
+## Solved once from the field itself rather than assumed to be zero, so
+## continent_land_fraction is a real dial: set 0.38 and 38% of the world is
+## above water, whatever the seed and octave settings do to the histogram.
+func _solve_continent_sea_threshold() -> float:
+	# Dense enough to resolve the continent wavelength (~1/frequency) and wide
+	# enough to cover many of them. Too coarse a step aliases the field and
+	# the solved quantile stops matching the world the player walks on.
+	var samples := 256
+	var wavelength := 1.0 / maxf(_config.continent_frequency, 0.00001)
+	var spread := wavelength * 24.0
+	var values := PackedFloat32Array()
+	values.resize(samples * samples)
+	var step := spread / float(samples)
+	for z in samples:
+		for x in samples:
+			values[z * samples + x] = _continent_noise.get_noise_2d(
+				(x - samples * 0.5) * step, (z - samples * 0.5) * step)
+	var sorted := Array(values)
+	sorted.sort()
+	var land_fraction := clampf(_config.continent_land_fraction, 0.02, 0.98)
+	var index := clampi(int((1.0 - land_fraction) * sorted.size()), 0, sorted.size() - 1)
+	return sorted[index]
 
 
 ## Carve valley channels using low-frequency noise
@@ -387,15 +480,23 @@ func _apply_valley_carving(h: float, sx: float, sz: float, sea: float, hs: float
 	return h - valley_mask * _config.valley_depth * hs * 0.4 * above_sea
 
 
-## Flatten high-elevation areas into mesa plateaus
-func _apply_plateau_flattening(h: float, sea: float, hs: float) -> float:
+## Flatten high-elevation areas into mesa plateaus.
+##
+## Skipped inside orogeny belts. Mesas form on stable interiors; fold ranges
+## do not have their summits shaved off. Applied everywhere, this pass took
+## a fixed cut out of every peak in the world — the taller the mountain, the
+## bigger the cut, which is precisely backwards.
+func _apply_plateau_flattening(h: float, sea: float, hs: float, belt: float) -> float:
 	if not _config.plateau_enabled:
+		return h
+	var strength := _config.plateau_strength * (1.0 - clampf(belt, 0.0, 1.0))
+	if strength <= 0.001:
 		return h
 	var h_norm := clampf((h - sea) / hs, 0.0, 1.0)
 	if h_norm > _config.plateau_threshold:
 		var plateau_t := clampf((h_norm - _config.plateau_threshold) / (1.0 - _config.plateau_threshold), 0.0, 1.0)
 		var target_h := sea + _config.plateau_threshold * hs
-		return lerpf(h, target_h, plateau_t * _config.plateau_strength)
+		return lerpf(h, target_h, plateau_t * strength)
 	return h
 
 
@@ -608,12 +709,25 @@ func _apply_thermal_erosion(heightmap: PackedFloat32Array) -> PackedFloat32Array
 	var cell_size := cs / float(res - 1)
 	var max_diff := tan(deg_to_rad(_config.thermal_max_slope)) * cell_size
 
+	# Thermal erosion moves material off any slope past the stable angle. Run
+	# at full strength everywhere it planes off exactly the ridgelines and
+	# cliff faces that give a landscape a skyline, so it fades out with
+	# elevation: talus slopes accumulate in the valleys, summits stay sharp.
+	var sea := _config.sea_level
+	var hs := maxf(_config.height_scale, 0.001)
+	var fade_start := _config.thermal_high_ground_start
+	var fade_end := maxf(_config.thermal_high_ground_end, fade_start + 0.01)
+
 	var border := 2  # Protect edge vertices for chunk alignment
 	for _pass in _config.thermal_iterations:
 		for z in range(border, res - border):
 			for x in range(border, res - border):
 				var idx := z * res + x
 				var h := heightmap[idx]
+				var h_norm := (h - sea) / hs
+				var strength := 1.0 - smoothstep(fade_start, fade_end, h_norm)
+				if strength <= 0.001:
+					continue
 
 				# Check 4 neighbors
 				var neighbors := [idx - 1, idx + 1, idx - res, idx + res]
@@ -630,7 +744,7 @@ func _apply_thermal_erosion(heightmap: PackedFloat32Array) -> PackedFloat32Array
 						excess_list.append(0.0)
 
 				if total_excess > 0.0:
-					var move := total_excess * 0.5
+					var move := total_excess * 0.5 * strength
 					heightmap[idx] -= move
 					for i in neighbors.size():
 						if excess_list[i] > 0.0:
@@ -647,6 +761,11 @@ func _apply_walkability_enforcement(heightmap: PackedFloat32Array) -> PackedFloa
 	var cell_size := cs / float(res - 1)
 	var max_diff := tan(deg_to_rad(_config.max_walkable_slope)) * cell_size
 	var enforcement := _config.walkable_enforcement
+	# High mountains are supposed to be unwalkable. Grading them into ramps
+	# alongside the lowland corridors is the second pass that removes relief.
+	var sea := _config.sea_level
+	var hs := maxf(_config.height_scale, 0.001)
+	var max_norm := _config.walkable_max_normalized_height
 
 	var border := 2  # Protect edge vertices for chunk alignment
 	for _pass in 3:
@@ -654,6 +773,8 @@ func _apply_walkability_enforcement(heightmap: PackedFloat32Array) -> PackedFloa
 			for x in range(border, res - border):
 				var idx := z * res + x
 				var h := heightmap[idx]
+				if (h - sea) / hs > max_norm:
+					continue
 
 				var neighbors := [idx - 1, idx + 1, idx - res, idx + res]
 				var total_excess := 0.0
@@ -1041,7 +1162,7 @@ func _trace_rivers_on_heightmap(coord: Vector2i, heightmap: PackedFloat32Array) 
 					var slope_degrees := _sample_world_slope_degrees(wx, wz, step)
 					var local_noise := (_river_source_noise.get_noise_2d(wx, wz) + 1.0) * 0.5
 					var source_score := local_noise
-					if geo_system and geo_system.has_method("get_river_source_score"):
+					if geo_system:
 						source_score = geo_system.get_river_source_score(
 							wx,
 							wz,
@@ -1323,11 +1444,10 @@ func _sample_world_height(wx: float, wz: float) -> float:
 	var hs := _config.height_scale
 	var sea := _config.sea_level
 	var sample := _warp_sample_coords(wx, wz)
-	var blended := _sample_base_terrain(sample.x, sample.y)
-	blended += _sample_ridged_contribution(sample.x, sample.y, blended)
-	var h := blended * hs
+	var belt := _sample_orogeny_mask(sample.x, sample.y)
+	var h := _sample_terrain_shape(sample.x, sample.y) * hs
 	h = _apply_valley_carving(h, sample.x, sample.y, sea, hs)
-	h = _apply_plateau_flattening(h, sea, hs)
+	h = _apply_plateau_flattening(h, sea, hs, belt)
 	h = _apply_traversal_shaping(h, wx, wz, sample.x, sample.y, sea, hs)
 	h = _apply_shoreline_gradient(h, wx, wz, sea)
 	h = _apply_ocean_floor(h, wx, wz, sample.x, sample.y, sea, hs)
@@ -1800,7 +1920,14 @@ func _sample_heightmap_bilinear(heightmap: PackedFloat32Array, res: int,
 	return lerpf(lerpf(h00, h10, tx), lerpf(h01, h11, tx), tz)
 
 
-func _sample_loaded_surface_height(wx: float, wz: float) -> float:
+## Authoritative carved-surface height at a world position.
+##
+## PUBLIC TERRAIN QUERY API. Downstream systems (flora, fauna, foliage, the
+## ECS actor layer, navigation) plant and walk on this. It used to be named
+## `_sample_loaded_surface_height` and every consumer reached it through
+## `has_method("_sample_loaded_surface_height")`, so a rename would have
+## silently dropped every actor through the world instead of failing loudly.
+func sample_surface_height(wx: float, wz: float) -> float:
 	var cs := GameConfig.chunk_size
 	var coord := Vector2i(floori(wx / cs), floori(wz / cs))
 	if _chunk_heightmaps.has(coord):
@@ -1880,7 +2007,7 @@ func _sample_density_world(wx: float, world_y: float, wz: float) -> float:
 			var sampled_density := _sample_chunk_density(chunk_data, coord, wx, world_y, wz)
 			if sampled_density != INF:
 				return sampled_density
-	var surface_h := _sample_loaded_surface_height(wx, wz)
+	var surface_h := sample_surface_height(wx, wz)
 	var density := surface_h - world_y
 	if _config.caves_enabled:
 		var spag_sq := _config.cave_spaghetti_threshold * _config.cave_spaghetti_threshold
@@ -2378,19 +2505,21 @@ func _smoothstep(edge0: float, edge1: float, x: float) -> float:
 	return t * t * (3.0 - 2.0 * t)
 
 
-func _sample_loaded_surface_normal(wx: float, wz: float, sample_step: float) -> Vector3:
+## Surface normal at a world position, from four height probes.
+## PUBLIC TERRAIN QUERY API — see sample_surface_height().
+func sample_surface_normal(wx: float, wz: float, sample_step: float = 1.0) -> Vector3:
 	var step := maxf(sample_step, 0.25)
-	var h_l := _sample_loaded_surface_height(wx - step, wz)
-	var h_r := _sample_loaded_surface_height(wx + step, wz)
-	var h_u := _sample_loaded_surface_height(wx, wz - step)
-	var h_d := _sample_loaded_surface_height(wx, wz + step)
+	var h_l := sample_surface_height(wx - step, wz)
+	var h_r := sample_surface_height(wx + step, wz)
+	var h_u := sample_surface_height(wx, wz - step)
+	var h_d := sample_surface_height(wx, wz + step)
 	return Vector3(-(h_r - h_l) / (2.0 * step), 1.0, -(h_d - h_u) / (2.0 * step)).normalized()
 
 
 func sample_surface_color_at_world(world_x: float, world_z: float, world_y: float = INF) -> Color:
 	var surface_y := world_y
 	if not is_finite(surface_y):
-		surface_y = _sample_loaded_surface_height(world_x, world_z)
+		surface_y = sample_surface_height(world_x, world_z)
 	var sea := _config.sea_level
 	var hs := _config.height_scale
 	var base_color := _surface_color(surface_y, sea, hs)
@@ -2405,8 +2534,15 @@ func sample_surface_color_at_world(world_x: float, world_z: float, world_y: floa
 	if biome_data:
 		blended_color = base_color.lerp(biome_data.terrain_color, 0.68)
 	var sample_step := GameConfig.chunk_size / maxf(float(_config.chunk_resolution - 1), 1.0)
-	var normal := _sample_loaded_surface_normal(world_x, world_z, sample_step)
+	var normal := sample_surface_normal(world_x, world_z, sample_step)
 	return _apply_surface_detail_color(blended_color, biome_data, world_x, surface_y, world_z, normal, sea, hs)
+
+
+## The generated mesh for a loaded chunk, or null.
+## PUBLIC TERRAIN QUERY API — NavigationSystem bakes its regions from this.
+## It used to read the private `_chunk_meshes` dictionary by string name.
+func get_chunk_mesh(coord: Vector2i) -> MeshInstance3D:
+	return _chunk_meshes.get(coord, null)
 
 
 ## Sample biome color from the precomputed grid with bilinear interpolation

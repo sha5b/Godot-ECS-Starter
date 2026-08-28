@@ -1,5 +1,5 @@
 class_name FaunaEntry
-extends Node
+extends Node3D
 
 ## Defines a single fauna type as a drag-and-drop scene.
 ## The 3D mesh nodes are children of this node — one file = one content type.

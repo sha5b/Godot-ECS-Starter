@@ -32,9 +32,22 @@ var offspring_count := 1
 ## cheap stand-in for maturity until a lifecycle component exists.
 var maturity_delay := 3.0
 
+## Deterministic stream seed. EcsSystem sets it from GameConfig.world_seed so
+## two runs on the same seed evolve the same lineages.
+var seed_value: int = 0xb2eed:
+	set(value):
+		seed_value = value
+		_rng.seed = value
+
+var _rng := RandomNumberGenerator.new()
+
 var _cache: EcsWorld.QueryCache = null
 var _timer := 0.0
 var _age: Dictionary = {}  ## entity -> seconds since first seen
+
+
+func _init() -> void:
+	_rng.seed = seed_value
 
 
 func tick(world: EcsWorld, delta: float, _frame: int) -> void:
@@ -58,8 +71,12 @@ func tick(world: EcsWorld, delta: float, _frame: int) -> void:
 
 	# O(n²) pairing pass — population caps keep this trivial. Same species
 	# only: critters drift within their lineage, they don't hybridize.
-	var rng := RandomNumberGenerator.new()
-	rng.seed = hash(world.stats) ^ Time.get_ticks_msec()
+	#
+	# One RNG for the system's lifetime, seeded from the world seed. It used
+	# to be re-allocated every tick and seeded off Time.get_ticks_msec(), so
+	# evolution was the one part of the simulation that a fixed world seed
+	# could not reproduce.
+	var rng := _rng
 	var radius_sq := partner_radius * partner_radius
 	for i in entities.size():
 		var a := entities[i]

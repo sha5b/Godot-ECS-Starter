@@ -12,7 +12,7 @@ rings = 3
 albedo_color = Color(0.25, 0.50, 0.18, 1)
 roughness = 0.9
 
-[node name="Bush" type="Node"]
+[node name="Bush" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"bush"
 spawn_weight = 2.0

@@ -5,6 +5,10 @@
 [node name="Plains" type="Node"]
 script = ExtResource("1_bd")
 biome_name = &"plains"
+foliage_lushness = 0.64
+foliage_dryness = 0.28
+foliage_density_bonus = 0.38
+foliage_sprite_weights = PackedFloat32Array(2.0, 0.0, 1.0, 1.0)
 terrain_color = Color(0.35, 0.55, 0.20, 1)
 ideal_temperature = 0.5
 temperature_tolerance = 0.25

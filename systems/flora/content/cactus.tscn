@@ -10,7 +10,7 @@ height = 1.2
 [sub_resource type="StandardMaterial3D" id="Mat"]
 albedo_color = Color(0.25, 0.50, 0.20, 1)
 
-[node name="Cactus" type="Node"]
+[node name="Cactus" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"cactus"
 spawn_weight = 2.0

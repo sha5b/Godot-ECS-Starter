@@ -10,6 +10,10 @@ extends Control
 ## Esc: clear the selection
 ## O: toggle the observer off/on
 
+## Input actions, bound in Project Settings > Input Map.
+const ACTION_TOGGLE := &"debug_observer_toggle"
+const ACTION_SELECT := &"world_select"
+
 const PANEL_WIDTH := 320.0
 const PICK_RADIUS_PX := 30.0
 const RING_COLOR := Color(0.42, 0.86, 1.0, 0.92)
@@ -36,26 +40,23 @@ func _exit_tree() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo:
-		if (event as InputEventKey).physical_keycode == KEY_O:
-			visible = not visible
-			if not visible and _ring != null and is_instance_valid(_ring):
-				_ring.visible = false
-			get_viewport().set_input_as_handled()
-			return
+	if event.is_action_pressed(ACTION_TOGGLE):
+		visible = not visible
+		if not visible and _ring != null and is_instance_valid(_ring):
+			_ring.visible = false
+		get_viewport().set_input_as_handled()
+		return
 	if not visible:
 		return
-	if event is InputEventMouseButton and event.pressed \
-			and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+	if event.is_action_pressed(ACTION_SELECT) and event is InputEventMouseButton:
 		var picked := _pick_at((event as InputEventMouseButton).position)
 		if picked >= 0:
 			_select(picked)
 		else:
 			_deselect()
-	elif event is InputEventKey and event.pressed and not event.echo:
-		if (event as InputEventKey).physical_keycode == KEY_ESCAPE and _selected >= 0:
-			_deselect()
-			get_viewport().set_input_as_handled()
+	elif event.is_action_pressed(&"ui_cancel") and _selected >= 0:
+		_deselect()
+		get_viewport().set_input_as_handled()
 
 
 func _process(delta: float) -> void:

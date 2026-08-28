@@ -27,7 +27,7 @@ albedo_color = Color(0.55, 0.40, 0.70, 0.4)
 roughness = 0.3
 transparency = 1
 
-[node name="Jellyfish" type="Node"]
+[node name="Jellyfish" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"jellyfish"
 spawn_weight = 1.5

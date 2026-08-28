@@ -5,6 +5,11 @@
 [node name="Rainforest" type="Node"]
 script = ExtResource("1_bd")
 biome_name = &"rainforest"
+foliage_lushness = 1.0
+foliage_dryness = 0.08
+foliage_scale_multiplier = 1.18
+foliage_density_bonus = 0.38
+foliage_sprite_weights = PackedFloat32Array(1.0, 1.0, 0.0, 2.0)
 terrain_color = Color(0.08, 0.30, 0.05, 1)
 ideal_temperature = 0.65
 temperature_tolerance = 0.2

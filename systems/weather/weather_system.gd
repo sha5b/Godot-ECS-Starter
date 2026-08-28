@@ -40,8 +40,8 @@ var _biome_particles: Node3D
 var _current_particle_biome: StringName = &""
 
 ## Cached biome system reference
-var _biome_system: BaseSystem
-var _geo_system
+var _biome_system: BiomeSystem
+var _geo_system: GeoSystem
 
 ## Noise for local weather zones (drifting weather fronts)
 var _weather_zone_noise: FastNoiseLite
@@ -99,7 +99,7 @@ func system_process(delta: float) -> void:
 ## CloudSystem and other systems call this to get region-specific weather.
 func get_local_weather(world_x: float, world_z: float) -> float:
 	if not _biome_system:
-		_biome_system = _find_system_by_type(BiomeSystem)
+		_biome_system = _find_system_by_type(BiomeSystem) as BiomeSystem
 
 	# Drift the noise sample position so weather fronts move across the world
 	var drift := _weather_time * _config.weather_drift_speed
@@ -114,23 +114,23 @@ func get_local_weather(world_x: float, world_z: float) -> float:
 	var global_rain := SharedWorld.rain_intensity
 	# zone > 0.5 = rainy pocket, zone < 0.5 = clear pocket
 	var local_base := clampf(zone * 2.0 - 0.5, 0.0, 1.0) * global_rain * 2.0
-	var geo_system = _get_geo_system()
-	if geo_system and geo_system.has_method("get_precipitation_potential"):
-		var macro_precipitation: float = geo_system.get_precipitation_potential(world_x, world_z)
+	var geo_system := _get_geo_system()
+	if geo_system:
+		var macro_precipitation := geo_system.get_precipitation_potential(world_x, world_z)
 		local_base *= lerpf(0.45, 1.55, macro_precipitation)
 
 	# Biome moisture modulation (wetter biomes get more rain)
-	if _biome_system and _biome_system.has_method("get_moisture_at_world"):
-		var moisture: float = _biome_system.get_moisture_at_world(world_x, world_z)
+	if _biome_system:
+		var moisture := _biome_system.get_moisture_at_world(world_x, world_z)
 		var influence := _config.biome_moisture_influence
 		local_base = lerpf(local_base, local_base * moisture * 2.0, influence)
 
 	return clampf(local_base, 0.0, 1.0)
 
 
-func _get_geo_system():
+func _get_geo_system() -> GeoSystem:
 	if not _geo_system:
-		_geo_system = _find_system_by_type(GEO_SYSTEM_SCRIPT)
+		_geo_system = _find_system_by_type(GEO_SYSTEM_SCRIPT) as GeoSystem
 	return _geo_system
 
 
@@ -455,8 +455,8 @@ func _update_biome_ambience(_delta: float) -> void:
 
 	# Lazy-find biome system
 	if not _biome_system:
-		_biome_system = _find_system_by_type(BiomeSystem)
-	if not _biome_system or not _biome_system.has_method("get_biome_data"):
+		_biome_system = _find_system_by_type(BiomeSystem) as BiomeSystem
+	if not _biome_system:
 		return
 
 	var bdata: BiomeData = _biome_system.get_biome_data(SharedWorld.active_biome_at_camera)

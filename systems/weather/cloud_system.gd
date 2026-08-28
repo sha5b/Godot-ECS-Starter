@@ -24,7 +24,7 @@ var _regen_timer: float = 0.0
 var _rain_amount: float = 0.0
 
 ## Cached WeatherSystem reference for local weather queries
-var _weather_system: BaseSystem
+var _weather_system: WeatherSystem
 
 ## Storm state — clouds get bigger, lower, denser during rain
 var _target_altitude: float = 60.0
@@ -290,7 +290,7 @@ func system_process(delta: float) -> void:
 
 	# Lazy-find WeatherSystem on first frame
 	if not _weather_system:
-		_weather_system = _find_system_by_type(WeatherSystem)
+		_weather_system = _find_system_by_type(WeatherSystem) as WeatherSystem
 
 	var cam_pos := SharedWorld.camera_world_pos
 	var wind := SharedWorld.wind_vector
@@ -351,7 +351,7 @@ func system_process(delta: float) -> void:
 
 ## Query local rain intensity at a world XZ position via WeatherSystem.
 func _get_local_rain_at(wx: float, wz: float) -> float:
-	if _weather_system and _weather_system.has_method("get_local_weather"):
+	if _weather_system:
 		return _weather_system.get_local_weather(wx, wz)
 	return SharedWorld.rain_intensity
 

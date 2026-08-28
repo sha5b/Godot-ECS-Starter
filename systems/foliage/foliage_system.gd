@@ -9,9 +9,12 @@ const FOLIAGE_ATLAS_TEXTURE_PATH := "res://systems/foliage/assets/foliage_styliz
 const FOLIAGE_FALLBACK_ATLAS_TEXTURE_PATH := "res://systems/foliage/assets/foliage_basic_atlas.png"
 const FOLIAGE_PALETTE_TEXTURE_PATH := "res://systems/foliage/assets/foliage_palette_01.tres"
 
+## Sprites in the ground-cover atlas. Biome sprite weights index into this.
+const SPRITE_COUNT := 4
+
 var _config
 var _biome_system: BiomeSystem
-var _terrain_system: BaseSystem
+var _terrain_system: TerrainSystem
 var _foliage_material: ShaderMaterial
 var _foliage_mesh: ArrayMesh
 var _noise_texture: NoiseTexture2D
@@ -338,9 +341,8 @@ func _create_foliage_instance(coord: Vector2i, biome_idx: int, local_x: float, l
 		rng: RandomNumberGenerator) -> Dictionary:
 	var height_norm := clampf((height - _sea_level) / maxf(_height_scale, 0.001), 0.0, 1.0)
 	var biome_data: BiomeData = _biome_system.get_biome_data(biome_idx) if _biome_system else null
-	var biome_name: StringName = biome_data.biome_name if biome_data else &"plains"
-	var sprite_index := _pick_foliage_sprite_index(biome_name, rng)
-	var biome_scale_mult := _get_biome_scale_multiplier(biome_name, height_norm)
+	var sprite_index := _pick_foliage_sprite_index(biome_data, rng)
+	var biome_scale_mult := _get_biome_scale_multiplier(biome_data, height_norm)
 	var sprite_scale_options: Array[float] = [0.82, 1.34, 1.08, 0.96]
 	var sprite_scale_mult: float = sprite_scale_options[sprite_index]
 	var scale_roll := rng.randf()
@@ -371,8 +373,8 @@ func _create_foliage_instance(coord: Vector2i, biome_idx: int, local_x: float, l
 	)
 	var custom_data := Color(
 		(float(sprite_index) + 0.5) / 4.0,
-		_get_biome_lushness(biome_name),
-		_get_biome_dryness(biome_name),
+		_get_biome_lushness(biome_data),
+		_get_biome_dryness(biome_data),
 		height_norm
 	)
 	var extra_slope_sink := scale_value * 0.34 * slope_sink_t
@@ -385,10 +387,10 @@ func _create_foliage_instance(coord: Vector2i, biome_idx: int, local_x: float, l
 
 func _sample_ground_normal(world_x: float, world_z: float, cs: float) -> Vector3:
 	if not _terrain_system:
-		_terrain_system = _find_system_by_type(TERRAIN_SYSTEM_SCRIPT)
-	if _terrain_system and _terrain_system.has_method("_sample_loaded_surface_normal"):
+		_terrain_system = _find_system_by_type(TERRAIN_SYSTEM_SCRIPT) as TerrainSystem
+	if _terrain_system:
 		var sample_step := cs / maxf(float(_config.density_per_chunk), 1.0)
-		return _terrain_system._sample_loaded_surface_normal(world_x, world_z, maxf(sample_step, 0.35))
+		return _terrain_system.sample_surface_normal(world_x, world_z, maxf(sample_step, 0.35))
 	return Vector3.UP
 
 func _build_foliage_basis(surface_normal: Vector3, scale_value: float, rng: RandomNumberGenerator) -> Basis:
@@ -410,8 +412,8 @@ func _build_foliage_basis(surface_normal: Vector3, scale_value: float, rng: Rand
 
 func _sample_ground_color(world_x: float, world_z: float, height: float, biome_data: BiomeData) -> Color:
 	if not _terrain_system:
-		_terrain_system = _find_system_by_type(TERRAIN_SYSTEM_SCRIPT)
-	if _terrain_system and _terrain_system.has_method("sample_surface_color_at_world"):
+		_terrain_system = _find_system_by_type(TERRAIN_SYSTEM_SCRIPT) as TerrainSystem
+	if _terrain_system:
 		return _terrain_system.sample_surface_color_at_world(world_x, world_z, height)
 	if biome_data:
 		return biome_data.terrain_color
@@ -426,14 +428,7 @@ func _get_foliage_density_score(biome_idx: int) -> float:
 	if _config.excluded_biomes.has(biome_data.biome_name):
 		return 0.0
 	var density := 0.5 + clampf(biome_data.flora_density_multiplier, 0.0, 3.0) * 0.4
-	match biome_data.biome_name:
-		&"plains", &"forest", &"rainforest", &"swamp", &"taiga", &"alpine_meadow":
-			density += 0.38
-		&"savanna":
-			density += 0.2
-		&"mountain", &"karst", &"canyon", &"tundra":
-			density -= 0.08
-	return clampf(density, 0.0, 1.0)
+	return clampf(density + biome_data.foliage_density_bonus, 0.0, 1.0)
 
 
 func _get_foliage_height_factor(biome_idx: int, height_norm: float) -> float:
@@ -448,56 +443,26 @@ func _get_foliage_height_factor(biome_idx: int, height_norm: float) -> float:
 		return 0.0
 	return clampf(1.0 - height_dist / tolerance, 0.0, 1.0)
 
-func _pick_foliage_sprite_index(biome_name: StringName, rng: RandomNumberGenerator) -> int:
-	match biome_name:
-		&"forest", &"rainforest", &"swamp":
-			return [0, 1, 3, 3][rng.randi_range(0, 3)]
-		&"plains", &"taiga", &"alpine_meadow":
-			return [0, 0, 2, 3][rng.randi_range(0, 3)]
-		&"savanna", &"mountain", &"karst", &"canyon", &"tundra":
-			return [0, 2, 2, 3][rng.randi_range(0, 3)]
-	return rng.randi_range(0, 3)
+## Ground-cover look is BiomeData's business, not the renderer's — see the
+## "Ground Cover" group on any biome content scene. A biome that has not
+## been tuned falls back to these neutral defaults.
+const DEFAULT_LUSHNESS := 0.55
+const DEFAULT_DRYNESS := 0.22
 
-func _get_biome_scale_multiplier(biome_name: StringName, height_norm: float) -> float:
-	var scale_mult := 1.0
-	match biome_name:
-		&"rainforest", &"swamp":
-			scale_mult = 1.18
-		&"forest", &"taiga":
-			scale_mult = 1.08
-		&"savanna":
-			scale_mult = 0.92
-		&"tundra", &"alpine_meadow", &"mountain", &"karst", &"canyon":
-			scale_mult = 0.82
+func _pick_foliage_sprite_index(biome_data: BiomeData, rng: RandomNumberGenerator) -> int:
+	if biome_data == null:
+		return rng.randi_range(0, SPRITE_COUNT - 1)
+	return biome_data.pick_foliage_sprite(rng, SPRITE_COUNT)
+
+func _get_biome_scale_multiplier(biome_data: BiomeData, height_norm: float) -> float:
+	var scale_mult := biome_data.foliage_scale_multiplier if biome_data else 1.0
 	return scale_mult * lerpf(0.94, 1.08, clampf(1.0 - absf(height_norm - 0.35), 0.0, 1.0))
 
-func _get_biome_lushness(biome_name: StringName) -> float:
-	match biome_name:
-		&"rainforest":
-			return 1.0
-		&"swamp", &"forest":
-			return 0.82
-		&"taiga", &"plains", &"alpine_meadow":
-			return 0.64
-		&"savanna":
-			return 0.38
-		&"mountain", &"karst", &"canyon", &"tundra":
-			return 0.22
-	return 0.55
+func _get_biome_lushness(biome_data: BiomeData) -> float:
+	return biome_data.foliage_lushness if biome_data else DEFAULT_LUSHNESS
 
-func _get_biome_dryness(biome_name: StringName) -> float:
-	match biome_name:
-		&"savanna":
-			return 0.72
-		&"mountain", &"karst", &"canyon", &"tundra":
-			return 0.48
-		&"plains", &"alpine_meadow":
-			return 0.28
-		&"forest", &"taiga":
-			return 0.16
-		&"rainforest", &"swamp":
-			return 0.08
-	return 0.22
+func _get_biome_dryness(biome_data: BiomeData) -> float:
+	return biome_data.foliage_dryness if biome_data else DEFAULT_DRYNESS
 
 ## React to ECS chemistry events by recoloring nearby foliage instances —
 ## fire visibly spreads and chars the rendered meadow, rain-doused and

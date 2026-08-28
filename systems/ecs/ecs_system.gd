@@ -17,6 +17,9 @@ extends BaseSystem
 ## and ECS events are forwarded to SystemBus as `ecs_event` plus any
 ## registered event watchers (the visual FX use those).
 
+## Player-facing chemistry hook, bound in Project Settings > Input Map.
+const ACTION_LIGHTNING := &"sim_lightning"
+
 ## Callables invoked (channel, payload) for every published ECS event
 ## before it is forwarded to SystemBus.
 var event_watchers: Array[Callable] = []
@@ -37,7 +40,8 @@ var _stat_timer := 0
 ## World population bookkeeping: chunk coord -> spawned entity ids.
 var _chunk_entities: Dictionary = {}
 var _populate_rng := RandomNumberGenerator.new()
-var _terrain_for_normals: BaseSystem = null
+const TERRAIN_SYSTEM_SCRIPT = preload("res://systems/terrain/terrain_system.gd")
+var _terrain_system: TerrainSystem = null
 
 
 func _initialize() -> void:
@@ -79,6 +83,7 @@ func _initialize() -> void:
 		breeding.breed_cooldown = _config.breed_cooldown
 		breeding.max_population = _config.breed_max_population
 		breeding.mutation_rate = _config.critter_mutation_rate
+		breeding.seed_value = GameConfig.world_seed ^ 0xb2eed
 		scheduler.register(&"breeding", breeding.tick, EcsScheduler.Phase.SIM, 55)
 	# Right after movement: velocity integration is planar, so actors need
 	# re-seating on the surface before anything reads their position.
@@ -128,9 +133,8 @@ func add_event_listener(watcher: Callable) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo:
-		if (event as InputEventKey).physical_keycode == KEY_L:
-			strike(SharedWorld.camera_world_pos + Vector3(0, 0.5, 0), 1.2)
+	if event.is_action_pressed(ACTION_LIGHTNING):
+		strike(SharedWorld.camera_world_pos + Vector3(0, 0.5, 0), 1.2)
 
 
 # ── World population ─────────────────────────────────────────────────────────
@@ -375,27 +379,24 @@ func _ground_agents(world: EcsWorld, _delta: float, frame: int) -> void:
 var _ground_cache: EcsWorld.QueryCache = null
 
 
+## The terrain system, or null when the ECS runs standalone (body lab,
+## headless tests) with no world generation under it.
+func _terrain() -> TerrainSystem:
+	if _terrain_system == null:
+		_terrain_system = _find_system_by_type(TERRAIN_SYSTEM_SCRIPT) as TerrainSystem
+	return _terrain_system
+
+
 ## Authoritative carved-surface height, or INF where nothing is loaded.
 func _surface_height(wx: float, wz: float) -> float:
-	if _terrain_for_normals == null:
-		_terrain_for_normals = _find_system_by_type(
-			preload("res://systems/terrain/terrain_system.gd")) as BaseSystem
-	if _terrain_for_normals == null:
-		return INF
-	if not _terrain_for_normals.has_method("_sample_loaded_surface_height"):
-		return INF
-	return _terrain_for_normals._sample_loaded_surface_height(wx, wz)
+	var terrain := _terrain()
+	return terrain.sample_surface_height(wx, wz) if terrain else INF
 
 
 ## Terrain surface normal at a world position (UP when unavailable).
 func _ground_normal(wx: float, wz: float) -> Vector3:
-	if _terrain_for_normals == null:
-		_terrain_for_normals = _find_system_by_type(
-			preload("res://systems/terrain/terrain_system.gd")) as BaseSystem
-	if _terrain_for_normals != null \
-			and _terrain_for_normals.has_method("_sample_loaded_surface_normal"):
-		return _terrain_for_normals._sample_loaded_surface_normal(wx, wz, 1.0)
-	return Vector3.UP
+	var terrain := _terrain()
+	return terrain.sample_surface_normal(wx, wz, 1.0) if terrain else Vector3.UP
 
 
 ## Tilt a prop view onto the terrain slope so it doesn't float on hills.

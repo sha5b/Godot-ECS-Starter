@@ -13,7 +13,7 @@ emission_enabled = true
 emission = Color(0.2, 0.3, 0.6, 1)
 emission_energy_multiplier = 0.4
 
-[node name="Crystal" type="Node"]
+[node name="Crystal" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"crystal"
 spawn_weight = 0.8

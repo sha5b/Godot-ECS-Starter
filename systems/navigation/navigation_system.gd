@@ -98,29 +98,24 @@ func _bake_chunk_navmesh(coord: Vector2i) -> void:
 
 ## Extract triangle faces from the actual MC terrain mesh (enables cave navigation)
 func _get_terrain_mesh_faces(coord: Vector2i) -> PackedVector3Array:
-	var terrain_sys: BaseSystem = _find_system_by_type(TerrainSystem)
+	var terrain_sys := _find_system_by_type(TerrainSystem) as TerrainSystem
 	if not terrain_sys:
 		return PackedVector3Array()
-	# Access the chunk mesh dictionary
-	if not terrain_sys.has_method("_get_chunk_mesh"):
-		# Direct access to the _chunk_meshes dict
-		var meshes: Dictionary = terrain_sys.get("_chunk_meshes")
-		if not meshes or not meshes.has(coord):
-			return PackedVector3Array()
-		var mesh_inst: MeshInstance3D = meshes[coord]
-		if not mesh_inst or not mesh_inst.mesh:
-			return PackedVector3Array()
-		var faces := mesh_inst.mesh.get_faces()
-		if faces.is_empty():
-			return PackedVector3Array()
-		# Transform faces to world space (mesh_inst has a local position offset)
-		var xform := mesh_inst.transform
-		var world_faces := PackedVector3Array()
-		world_faces.resize(faces.size())
-		for i in faces.size():
-			world_faces[i] = xform * faces[i]
-		return world_faces
-	return PackedVector3Array()
+	# Public terrain query API — this used to read the private _chunk_meshes
+	# dictionary by string name, which no rename or refactor could catch.
+	var mesh_inst := terrain_sys.get_chunk_mesh(coord)
+	if not mesh_inst or not mesh_inst.mesh:
+		return PackedVector3Array()
+	var faces := mesh_inst.mesh.get_faces()
+	if faces.is_empty():
+		return PackedVector3Array()
+	# Transform faces to world space (mesh_inst has a local position offset)
+	var xform := mesh_inst.transform
+	var world_faces := PackedVector3Array()
+	world_faces.resize(faces.size())
+	for i in faces.size():
+		world_faces[i] = xform * faces[i]
+	return world_faces
 
 
 ## Fallback: build nav faces from the heightmap grid

@@ -16,6 +16,21 @@ extends Camera3D
 ## AI threats all follow the camera.
 
 
+## Input actions, defined in Project Settings > Input Map. Rebind there —
+## no keycode is hardcoded in this rig.
+const ACTION_PAN_FORWARD := &"world_pan_forward"
+const ACTION_PAN_BACK := &"world_pan_back"
+const ACTION_PAN_LEFT := &"world_pan_left"
+const ACTION_PAN_RIGHT := &"world_pan_right"
+const ACTION_PAN_FAST := &"world_pan_fast"
+const ACTION_ORBIT_LEFT := &"world_orbit_left"
+const ACTION_ORBIT_RIGHT := &"world_orbit_right"
+const ACTION_ZOOM_IN := &"world_zoom_in"
+const ACTION_ZOOM_OUT := &"world_zoom_out"
+const ACTION_ORBIT_DRAG := &"world_orbit_drag"
+const ACTION_DRAG_PAN := &"world_drag_pan"
+
+
 @export var focus := Vector3(0, 0, 8)
 @export var yaw := 0.0
 @export var pitch := deg_to_rad(52.0)
@@ -80,12 +95,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		# Positive accumulator lengthens the boom, so wheel up has to push it
 		# negative to move the camera in.
 		var zoom_dir := 1.0 if invert_zoom else -1.0
-		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+		if event.is_action(ACTION_ZOOM_IN):
 			_zoom_accumulator += zoom_dir
-		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+		elif event.is_action(ACTION_ZOOM_OUT):
 			_zoom_accumulator -= zoom_dir
 	elif event is InputEventMouseMotion:
-		if event.button_mask & MOUSE_BUTTON_MASK_RIGHT:
+		if Input.is_action_pressed(ACTION_ORBIT_DRAG):
 			# Hold-and-drag rotate — the standard RTS camera grip.
 			var yaw_dir := 1.0 if invert_rotate else -1.0
 			var tilt_dir := -1.0 if invert_tilt else 1.0
@@ -93,7 +108,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			_target_pitch = clampf(
 				_target_pitch + event.relative.y * rotate_speed * 0.01 * tilt_dir,
 				min_pitch, max_pitch)
-		elif event.button_mask & (MOUSE_BUTTON_MASK_MIDDLE | MOUSE_BUTTON_MASK_LEFT):
+		elif Input.is_action_pressed(ACTION_DRAG_PAN):
 			# Grab-the-ground drag: the world follows the cursor. Bound to
 			# the LEFT button as well as the middle one — "click and drag"
 			# means the primary button to most people, and it was previously
@@ -121,22 +136,17 @@ func _process(delta: float) -> void:
 	var pan := Vector2.ZERO
 	var pan_x := -1.0 if invert_pan_horizontal else 1.0
 	var pan_y := -1.0 if invert_pan_vertical else 1.0
-	if Input.is_physical_key_pressed(KEY_D) or Input.is_physical_key_pressed(KEY_RIGHT):
-		pan.x -= pan_x
-	if Input.is_physical_key_pressed(KEY_A) or Input.is_physical_key_pressed(KEY_LEFT):
-		pan.x += pan_x
-	if Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_UP):
-		pan.y -= pan_y
-	if Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_DOWN):
-		pan.y += pan_y
+	# get_axis reads the Project Settings actions, so rebinding the rig is a
+	# Project Settings edit rather than a code change.
+	pan.x -= Input.get_axis(ACTION_PAN_LEFT, ACTION_PAN_RIGHT) * pan_x
+	pan.y -= Input.get_axis(ACTION_PAN_BACK, ACTION_PAN_FORWARD) * pan_y
 	# Q/E orbit matches the right-drag direction.
 	var key_yaw := 1.0 if invert_rotate else -1.0
-	if Input.is_physical_key_pressed(KEY_Q):
-		_target_yaw -= rotate_speed * delta * key_yaw
-	if Input.is_physical_key_pressed(KEY_E):
-		_target_yaw += rotate_speed * delta * key_yaw
+	var orbit := Input.get_axis(ACTION_ORBIT_LEFT, ACTION_ORBIT_RIGHT)
+	if orbit != 0.0:
+		_target_yaw += orbit * rotate_speed * delta * key_yaw
 	if pan != Vector2.ZERO:
-		if Input.is_physical_key_pressed(KEY_SHIFT):
+		if Input.is_action_pressed(ACTION_PAN_FAST):
 			pan *= 2.0
 		_pan_target(pan * delta)
 

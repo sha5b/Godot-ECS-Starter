@@ -10,7 +10,7 @@ const GEO_SYSTEM_SCRIPT = preload("res://systems/geo/geo_system.gd")
 var _config: BiomeConfig
 var _temp_noise: FastNoiseLite
 var _moisture_noise: FastNoiseLite
-var _geo_system
+var _geo_system: GeoSystem
 
 ## Auto-discovered biome list (populated from children)
 var _biomes: Array[BiomeData] = []
@@ -135,23 +135,23 @@ func _find_biome(temperature: float, moisture: float, height_normalized: float) 
 	return best_idx
 
 
-func _get_geo_system():
+func _get_geo_system() -> GeoSystem:
 	if not _geo_system:
-		_geo_system = _find_system_by_type(GEO_SYSTEM_SCRIPT)
+		_geo_system = _find_system_by_type(GEO_SYSTEM_SCRIPT) as GeoSystem
 	return _geo_system
 
 
 func _get_temperature_at_world(world_x: float, world_z: float, noise_temperature: float) -> float:
-	var geo_system = _get_geo_system()
-	if geo_system and geo_system.has_method("blend_biome_temperature"):
+	var geo_system := _get_geo_system()
+	if geo_system:
 		return geo_system.blend_biome_temperature(noise_temperature, world_x, world_z)
 	return _apply_macro_temperature(world_z, noise_temperature)
 
 
 func _get_moisture_at_world(world_x: float, world_z: float,
 		noise_moisture: float, height_normalized: float) -> float:
-	var geo_system = _get_geo_system()
-	if geo_system and geo_system.has_method("blend_biome_moisture"):
+	var geo_system := _get_geo_system()
+	if geo_system:
 		return geo_system.blend_biome_moisture(noise_moisture, world_x, world_z, height_normalized)
 	return _apply_macro_moisture(height_normalized, noise_moisture)
 

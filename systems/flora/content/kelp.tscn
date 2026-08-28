@@ -24,7 +24,7 @@ alpha_scissor_threshold = 0.3
 albedo_color = Color(0.20, 0.38, 0.12, 0.95)
 roughness = 0.5
 
-[node name="Kelp" type="Node"]
+[node name="Kelp" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"kelp"
 spawn_weight = 2.5

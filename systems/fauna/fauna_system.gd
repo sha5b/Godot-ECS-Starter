@@ -30,8 +30,8 @@ var _tribes: Dictionary = {}
 var _buildings: Dictionary = {}
 
 ## Cached references
-var _biome_system: BaseSystem = null
-var _nav_system: BaseSystem = null
+var _biome_system: BiomeSystem = null
+var _nav_system: NavigationSystem = null
 var _ai_timer: float = 0.0
 var _lifecycle_timer: float = 0.0
 var _sea_level: float = 0.0
@@ -78,9 +78,9 @@ func system_process(delta: float) -> void:
 
 	# Lazy-find systems
 	if not _biome_system:
-		_biome_system = _find_system_by_name(&"BiomeSystem")
+		_biome_system = _find_system_by_name(&"BiomeSystem") as BiomeSystem
 	if not _nav_system:
-		_nav_system = _find_system_by_name(&"NavigationSystem")
+		_nav_system = _find_system_by_name(&"NavigationSystem") as NavigationSystem
 	if not _params_found:
 		_find_terrain_params()
 		_params_found = true
@@ -497,7 +497,7 @@ func _refresh_tribes() -> void:
 		_register_tribe_for_group(group_id, _fauna_ai[leader_id], group_data.get("center", Vector3.ZERO))
 	_sync_shared_registries()
 const TERRAIN_SYSTEM_SCRIPT = preload("res://systems/terrain/terrain_system.gd")
-var _terrain_system: BaseSystem = null
+var _terrain_system: TerrainSystem = null
 
 
 ## Glue a shelter or building to the generated ground: take the authoritative
@@ -505,16 +505,14 @@ var _terrain_system: BaseSystem = null
 ## normal so wide props don't float on slopes.
 func _snap_prop_to_surface(root: Node3D) -> void:
 	if _terrain_system == null:
-		_terrain_system = _find_system_by_type(TERRAIN_SYSTEM_SCRIPT) as BaseSystem
+		_terrain_system = _find_system_by_type(TERRAIN_SYSTEM_SCRIPT) as TerrainSystem
 	if _terrain_system == null:
 		return
 	var pos := root.position
-	if _terrain_system.has_method("_sample_loaded_surface_height"):
-		pos.y = _terrain_system._sample_loaded_surface_height(pos.x, pos.z) - 0.02
-	if _terrain_system.has_method("_sample_loaded_surface_normal"):
-		var normal: Vector3 = _terrain_system._sample_loaded_surface_normal(pos.x, pos.z, 1.0)
-		if normal.dot(Vector3.UP) < 0.999:
-			root.quaternion = Quaternion(Vector3.UP, normal)
+	pos.y = _terrain_system.sample_surface_height(pos.x, pos.z) - 0.02
+	var normal := _terrain_system.sample_surface_normal(pos.x, pos.z, 1.0)
+	if normal.dot(Vector3.UP) < 0.999:
+		root.quaternion = Quaternion(Vector3.UP, normal)
 	root.position = pos
 
 
@@ -819,8 +817,8 @@ func _spawn_fauna_for_chunk(coord: Vector2i, biome_map: PackedByteArray) -> void
 
 		var density_mult := 1.0
 		var biome_name := &"plains"
-		if _biome_system and _biome_system.has_method("get_biome_data"):
-			var bdata: BiomeData = _biome_system.get_biome_data(biome_idx)
+		if _biome_system:
+			var bdata := _biome_system.get_biome_data(biome_idx)
 			if bdata:
 				density_mult = bdata.fauna_density_multiplier
 				biome_name = bdata.biome_name
@@ -1470,9 +1468,9 @@ func _find_nearest_predator(prey_node: Node3D, prey_entry: FaunaEntry) -> Node3D
 
 ## Compute a navigation path between two world positions via NavigationSystem
 func _compute_nav_path(from: Vector3, to: Vector3) -> PackedVector3Array:
-	if not _nav_system or not _nav_system.has_method("get_nav_path"):
+	if not _nav_system:
 		return PackedVector3Array()
-	var path: PackedVector3Array = _nav_system.get_nav_path(from, to)
+	var path := _nav_system.get_nav_path(from, to)
 	if path.size() < 2:
 		return PackedVector3Array()
 	return path

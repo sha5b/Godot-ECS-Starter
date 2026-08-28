@@ -5,6 +5,11 @@
 [node name="Savanna" type="Node"]
 script = ExtResource("1_bd")
 biome_name = &"savanna"
+foliage_lushness = 0.38
+foliage_dryness = 0.72
+foliage_scale_multiplier = 0.92
+foliage_density_bonus = 0.2
+foliage_sprite_weights = PackedFloat32Array(1.0, 0.0, 2.0, 1.0)
 terrain_color = Color(0.65, 0.62, 0.30, 1)
 ideal_temperature = 0.7
 temperature_tolerance = 0.2

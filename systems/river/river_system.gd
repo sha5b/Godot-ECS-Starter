@@ -1,6 +1,8 @@
 class_name RiverSystem
 extends BaseSystem
 
+const RIVER_SHADER = preload("res://systems/river/river_surface.gdshader")
+
 ## Continuous river surface renderer.
 ## TerrainSystem still owns river tracing + carving, but rendering is driven by
 ## per-chunk river render paths so the visible water becomes a connected
@@ -40,10 +42,10 @@ func _register_signals() -> void:
 
 
 func _setup_material() -> void:
-	var shader := Shader.new()
-	shader.code = _get_river_shader_code()
+	# Real .gdshader file sharing water_common.gdshaderinc with the ocean, so
+	# river and sea are one material family instead of two lookalikes.
 	_river_material = ShaderMaterial.new()
-	_river_material.shader = shader
+	_river_material.shader = RIVER_SHADER
 	_river_material.render_priority = 1
 	_river_material.set_shader_parameter("shore_color", _config.river_shore_color)
 	_river_material.set_shader_parameter("shallow_color", _config.river_shallow_color)
@@ -396,6 +398,8 @@ func _shared_corner_height(render_cell_map: Dictionary, corner_key: Vector2i) ->
 
 func _emit_render_cell_top(st: SurfaceTool, render_cell: Dictionary, _step: float) -> void:
 	var depth_t := float(render_cell["depth_t"])
+	# COLOR.g is the outlet ramp the shader fades the surface out with.
+	var tint := Color(depth_t, float(render_cell.get("outlet_t", 0.0)), depth_t, 1.0)
 	var flow := Vector2(float(render_cell.get("flow_dir_x", 0.0)), float(render_cell.get("flow_dir_z", 1.0)))
 	if flow.length_squared() < 0.0001:
 		flow = Vector2(0.0, 1.0)
@@ -412,23 +416,23 @@ func _emit_render_cell_top(st: SurfaceTool, render_cell: Dictionary, _step: floa
 	var v_se := Vector2(se.x, se.z).dot(flow) * along_scale
 	var v_sw := Vector2(sw.x, sw.z).dot(flow) * along_scale
 	st.set_normal(normal)
-	st.set_color(Color(depth_t, depth_t, depth_t, 1.0))
+	st.set_color(tint)
 	st.set_uv(Vector2(0.0, v_nw))
 	st.add_vertex(nw)
-	st.set_color(Color(depth_t, depth_t, depth_t, 1.0))
+	st.set_color(tint)
 	st.set_uv(Vector2(1.0, v_ne))
 	st.add_vertex(ne)
-	st.set_color(Color(depth_t, depth_t, depth_t, 1.0))
+	st.set_color(tint)
 	st.set_uv(Vector2(1.0, v_se))
 	st.add_vertex(se)
 	st.set_normal(normal)
-	st.set_color(Color(depth_t, depth_t, depth_t, 1.0))
+	st.set_color(tint)
 	st.set_uv(Vector2(0.0, v_nw))
 	st.add_vertex(nw)
-	st.set_color(Color(depth_t, depth_t, depth_t, 1.0))
+	st.set_color(tint)
 	st.set_uv(Vector2(1.0, v_se))
 	st.add_vertex(se)
-	st.set_color(Color(depth_t, depth_t, depth_t, 1.0))
+	st.set_color(tint)
 	st.set_uv(Vector2(0.0, v_sw))
 	st.add_vertex(sw)
 
@@ -474,7 +478,8 @@ func _emit_render_cell_walls(st: SurfaceTool, render_cell: Dictionary, render_ce
 			continue
 		if top_a.y <= bottom_y_a + 0.01 and top_b.y <= bottom_y_b + 0.01:
 			continue
-		_emit_bank_strip(st, top_a, top_b, bottom_y_a, bottom_y_b, depth_t, depth_t, 0.0, 1.0)
+		_emit_bank_strip(st, top_a, top_b, bottom_y_a, bottom_y_b, depth_t, depth_t,
+			outlet_t, outlet_t, 0.0, 1.0)
 		wall_count += 1
 	return wall_count
 
@@ -564,7 +569,8 @@ func _sample_render_path(render_path: Array, heightmap: PackedFloat32Array, res:
 		var wz := float(point["world_z"])
 		if wx < origin_x or wx > origin_x + GameConfig.chunk_size or wz < origin_z or wz > origin_z + GameConfig.chunk_size:
 			continue
-		var outlet_t := clampf(1.0 - ((float(point.get("surface_y", sea_surface_y)) - sea_surface_y) / maxf(step * 1.5, 0.001)), 0.0, 1.0)
+		var outlet_t := clampf(1.0 - ((float(point.get("surface_y", sea_surface_y)) - sea_surface_y)
+			/ maxf(_config.outlet_blend_distance, 0.001)), 0.0, 1.0)
 		var base_half_width := maxf(float(point.get("half_width", 0.6)) * 0.62, step * 0.22)
 		var half_width := base_half_width * lerpf(1.0, 1.35, outlet_t)
 		var bed_y := _sample_hm_bilinear(heightmap, res, origin_x, origin_z, step, wx, wz)
@@ -578,6 +584,9 @@ func _sample_render_path(render_path: Array, heightmap: PackedFloat32Array, res:
 		if prev_water_y != INF and water_y > prev_water_y:
 			water_y = prev_water_y
 		water_y = maxf(water_y, sea_surface_y)
+		# Sink the last metres under the ocean plane so the two surfaces are
+		# never coplanar (the shader fades the river out across the same band).
+		water_y -= _config.outlet_sink * outlet_t
 		var depth_t := clampf((water_y - bed_y) / 0.35, 0.0, 1.0)
 		var center := Vector3(wx, water_y, wz)
 		if not sampled_points.is_empty():
@@ -591,6 +600,7 @@ func _sample_render_path(render_path: Array, heightmap: PackedFloat32Array, res:
 			"flow_dir_x": float(point.get("flow_dir_x", 0.0)),
 			"flow_dir_z": float(point.get("flow_dir_z", 1.0)),
 			"uv_v": accumulated_v,
+			"outlet_t": outlet_t,
 		})
 		prev_water_y = water_y
 	if sampled_points.size() < 2:
@@ -703,44 +713,50 @@ func _emit_render_path(st: SurfaceTool, sampled_points: Array,
 		var left_b: Vector3 = b["left"]
 		var right_b: Vector3 = b["right"]
 		var normal := _quad_normal(left_a, right_a, right_b, left_b)
+		var out_a := float(a.get("outlet_t", 0.0))
+		var out_b := float(b.get("outlet_t", 0.0))
 		_emit_strip_quad(st, left_a, right_a, right_b, left_b,
 			float(a["uv_v"]), float(b["uv_v"]),
-			float(a.get("depth_t", 0.5)), float(b.get("depth_t", 0.5)), normal)
+			float(a.get("depth_t", 0.5)), float(b.get("depth_t", 0.5)),
+			out_a, out_b, normal)
 
 		var left_bed_a := _sample_hm_bilinear(heightmap, res, origin_x, origin_z, step, left_a.x, left_a.z)
 		var left_bed_b := _sample_hm_bilinear(heightmap, res, origin_x, origin_z, step, left_b.x, left_b.z)
 		_emit_bank_strip(st, left_a, left_b, left_bed_a, left_bed_b,
 			float(a.get("depth_t", 0.5)), float(b.get("depth_t", 0.5)),
-			float(a["uv_v"]), float(b["uv_v"]))
+			out_a, out_b, float(a["uv_v"]), float(b["uv_v"]))
 
 		var right_bed_a := _sample_hm_bilinear(heightmap, res, origin_x, origin_z, step, right_a.x, right_a.z)
 		var right_bed_b := _sample_hm_bilinear(heightmap, res, origin_x, origin_z, step, right_b.x, right_b.z)
 		_emit_bank_strip(st, right_b, right_a, right_bed_b, right_bed_a,
 			float(b.get("depth_t", 0.5)), float(a.get("depth_t", 0.5)),
-			float(b["uv_v"]), float(a["uv_v"]))
+			out_b, out_a, float(b["uv_v"]), float(a["uv_v"]))
 
 
 func _emit_strip_quad(st: SurfaceTool,
 		left_a: Vector3, right_a: Vector3, right_b: Vector3, left_b: Vector3,
-		v0: float, v1: float, depth_a: float, depth_b: float, normal: Vector3) -> void:
+		v0: float, v1: float, depth_a: float, depth_b: float,
+		outlet_a: float, outlet_b: float, normal: Vector3) -> void:
+	var tint_a := Color(depth_a, outlet_a, depth_a, 1.0)
+	var tint_b := Color(depth_b, outlet_b, depth_b, 1.0)
 	st.set_normal(normal)
-	st.set_color(Color(depth_a, depth_a, depth_a, 1.0))
+	st.set_color(tint_a)
 	st.set_uv(Vector2(0.0, v0))
 	st.add_vertex(left_a)
-	st.set_color(Color(depth_a, depth_a, depth_a, 1.0))
+	st.set_color(tint_a)
 	st.set_uv(Vector2(1.0, v0))
 	st.add_vertex(right_a)
-	st.set_color(Color(depth_b, depth_b, depth_b, 1.0))
+	st.set_color(tint_b)
 	st.set_uv(Vector2(1.0, v1))
 	st.add_vertex(right_b)
 	st.set_normal(normal)
-	st.set_color(Color(depth_a, depth_a, depth_a, 1.0))
+	st.set_color(tint_a)
 	st.set_uv(Vector2(0.0, v0))
 	st.add_vertex(left_a)
-	st.set_color(Color(depth_b, depth_b, depth_b, 1.0))
+	st.set_color(tint_b)
 	st.set_uv(Vector2(1.0, v1))
 	st.add_vertex(right_b)
-	st.set_color(Color(depth_b, depth_b, depth_b, 1.0))
+	st.set_color(tint_b)
 	st.set_uv(Vector2(0.0, v1))
 	st.add_vertex(left_b)
 
@@ -749,30 +765,33 @@ func _emit_bank_strip(st: SurfaceTool,
 		top_a: Vector3, top_b: Vector3,
 		bed_y_a: float, bed_y_b: float,
 		depth_a: float, depth_b: float,
+		outlet_a: float, outlet_b: float,
 		v0: float, v1: float) -> void:
 	if top_a.y <= bed_y_a + 0.01 and top_b.y <= bed_y_b + 0.01:
 		return
+	var tint_a := Color(depth_a, outlet_a, depth_a, 1.0)
+	var tint_b := Color(depth_b, outlet_b, depth_b, 1.0)
 	var bottom_a := Vector3(top_a.x, minf(top_a.y - 0.01, bed_y_a), top_a.z)
 	var bottom_b := Vector3(top_b.x, minf(top_b.y - 0.01, bed_y_b), top_b.z)
 	var normal := _quad_normal(top_a, top_b, bottom_b, bottom_a)
 	st.set_normal(normal)
-	st.set_color(Color(depth_a, depth_a, depth_a, 1.0))
+	st.set_color(tint_a)
 	st.set_uv(Vector2(0.0, v0))
 	st.add_vertex(top_a)
-	st.set_color(Color(depth_b, depth_b, depth_b, 1.0))
+	st.set_color(tint_b)
 	st.set_uv(Vector2(0.0, v1))
 	st.add_vertex(top_b)
-	st.set_color(Color(depth_b, depth_b, depth_b, 1.0))
+	st.set_color(tint_b)
 	st.set_uv(Vector2(1.0, v1))
 	st.add_vertex(bottom_b)
 	st.set_normal(normal)
-	st.set_color(Color(depth_a, depth_a, depth_a, 1.0))
+	st.set_color(tint_a)
 	st.set_uv(Vector2(0.0, v0))
 	st.add_vertex(top_a)
-	st.set_color(Color(depth_b, depth_b, depth_b, 1.0))
+	st.set_color(tint_b)
 	st.set_uv(Vector2(1.0, v1))
 	st.add_vertex(bottom_b)
-	st.set_color(Color(depth_a, depth_a, depth_a, 1.0))
+	st.set_color(tint_a)
 	st.set_uv(Vector2(1.0, v0))
 	st.add_vertex(bottom_a)
 
@@ -890,102 +909,3 @@ func _shutdown() -> void:
 
 
 # ── Shader ───────────────────────────────────────────────────────────────────
-
-func _get_river_shader_code() -> String:
-	return """
-shader_type spatial;
-render_mode blend_mix, depth_draw_always, cull_disabled, specular_schlick_ggx;
-
-uniform vec4 shore_color : source_color = vec4(0.34, 0.68, 0.64, 0.50);
-uniform vec4 shallow_color : source_color = vec4(0.30, 0.55, 0.65, 0.70);
-uniform vec4 mid_color : source_color = vec4(0.10, 0.32, 0.48, 0.80);
-uniform vec4 deep_color : source_color = vec4(0.15, 0.35, 0.50, 0.85);
-uniform vec4 foam_color : source_color = vec4(0.92, 0.95, 1.0, 0.9);
-uniform float foam_width = 0.7;
-uniform float foam_noise_scale = 7.0;
-uniform float flow_speed : hint_range(0.0, 5.0) = 1.2;
-uniform float wave_amplitude = 0.05;
-uniform float wave_frequency = 1.4;
-uniform float wave_speed = 0.75;
-uniform float roughness : hint_range(0.0, 1.0) = 0.05;
-uniform float metallic : hint_range(0.0, 1.0) = 0.2;
-uniform float time = 0.0;
-uniform vec2 chunk_origin_xz = vec2(0.0);
-uniform float chunk_size = 32.0;
-uniform sampler2D DEPTH_TEXTURE : hint_depth_texture, filter_linear_mipmap;
-uniform sampler2D SCREEN_TEXTURE : hint_screen_texture, filter_linear_mipmap;
-uniform sampler2D terrain_depth_tex : source_color, filter_linear_mipmap, repeat_disable;
-
-varying vec3 v_world_pos;
-varying float v_terrain_depth;
-
-vec3 wave_normal(vec2 pos, float along, float t) {
-	float dx = 0.0;
-	float dz = 0.0;
-	float p1 = along * wave_frequency * 2.0 - t * flow_speed * 2.4;
-	dx += cos(p1 + pos.x * 0.04) * 0.18;
-	dz += sin(p1 + pos.y * 0.03) * 0.35;
-	float p2 = along * wave_frequency * 3.6 - t * wave_speed * 3.2;
-	dx += cos(p2 - pos.y * 0.05) * 0.10;
-	dz += sin(p2 + pos.x * 0.02) * 0.22;
-	float p3 = (pos.x + pos.y) * 0.08 - t * wave_speed * 1.2;
-	dx += cos(p3) * 0.05;
-	dz += sin(p3) * 0.05;
-	return normalize(vec3(-dx, 1.0, -dz));
-}
-
-vec4 depth_zone_color(float d) {
-	if (d < 0.28) {
-		return mix(shore_color, shallow_color, smoothstep(0.0, 0.28, d));
-	} else if (d < 0.68) {
-		return mix(shallow_color, mid_color, smoothstep(0.28, 0.68, d));
-	}
-	return mix(mid_color, deep_color, smoothstep(0.68, 1.0, d));
-}
-
-void vertex() {
-	v_world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	vec2 local_uv = clamp((v_world_pos.xz - chunk_origin_xz) / max(chunk_size, 0.001), vec2(0.0), vec2(1.0));
-	v_terrain_depth = texture(terrain_depth_tex, local_uv).r;
-	float flow_wave = sin(UV.y * wave_frequency * 5.0 - time * flow_speed * 3.0 + v_world_pos.x * 0.03 + v_world_pos.z * 0.02);
-	float lateral_wave = sin(UV.x * 6.2831 + UV.y * wave_frequency * 2.2 - time * wave_speed * 2.0);
-	float depth_factor = mix(0.35, 1.0, v_terrain_depth);
-	VERTEX.y += (flow_wave * 0.7 + lateral_wave * 0.3) * wave_amplitude * depth_factor;
-}
-
-void fragment() {
-	float depth_t = clamp(COLOR.r, 0.0, 1.0);
-	vec3 wn = wave_normal(v_world_pos.xz, UV.y, time * wave_speed);
-	float depth_raw = textureLod(DEPTH_TEXTURE, SCREEN_UV, 0.0).r;
-	vec4 ndc = vec4(SCREEN_UV * 2.0 - 1.0, depth_raw, 1.0);
-	vec4 view_depth = INV_PROJECTION_MATRIX * ndc;
-	view_depth.xyz /= view_depth.w;
-	float scene_depth = -view_depth.z;
-	float water_depth = -VERTEX.z;
-	float depth_diff = scene_depth - water_depth;
-	float depth_blend = max(clamp(depth_diff / 1.8, 0.0, 1.0), v_terrain_depth);
-	vec4 water_col = depth_zone_color(depth_blend);
-	float edge_factor = 1.0 - smoothstep(0.08, 0.30, min(UV.x, 1.0 - UV.x));
-	float foam_factor = 1.0 - clamp(depth_diff / max(foam_width, 0.001), 0.0, 1.0);
-	foam_factor = max(foam_factor, edge_factor * (1.0 - smoothstep(0.12, 0.55, depth_t)));
-	float fn1 = sin(v_world_pos.x * foam_noise_scale + time * 2.0) * 0.5 + 0.5;
-	float fn2 = sin(v_world_pos.z * foam_noise_scale * 0.75 + time * 1.5) * 0.5 + 0.5;
-	float fn3 = sin((v_world_pos.x + v_world_pos.z) * foam_noise_scale * 0.5 - time * 1.8) * 0.5 + 0.5;
-	float foam_noise = fn1 * fn2 * 0.7 + fn3 * 0.3;
-	foam_factor *= step(0.24, foam_noise + foam_factor * 0.35);
-	float crest = pow(1.0 - clamp(wn.y, 0.0, 1.0), 3.0) * 1.5;
-	foam_factor = max(foam_factor, crest * depth_blend * 0.45);
-	vec2 refraction_uv = SCREEN_UV + wn.xz * 0.015 * (1.0 - depth_blend);
-	vec3 refracted = textureLod(SCREEN_TEXTURE, refraction_uv, 0.0).rgb;
-	vec3 final_color = mix(water_col.rgb, foam_color.rgb, foam_factor * 0.68);
-	final_color = mix(refracted, final_color, water_col.a);
-	float final_alpha = mix(water_col.a, foam_color.a, foam_factor * 0.45);
-
-	ALBEDO = final_color;
-	ALPHA = clamp(final_alpha + depth_blend * 0.22, 0.0, 1.0);
-	NORMAL = mix(vec3(0.0, 1.0, 0.0), wn, mix(0.4, 1.0, depth_blend));
-	ROUGHNESS = mix(0.02, roughness, depth_blend);
-	METALLIC = metallic;
-	SPECULAR = 0.5;
-}
-"""

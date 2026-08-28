@@ -1,6 +1,8 @@
 class_name WaterSystem
 extends BaseSystem
 
+const WATER_SHADER = preload("res://systems/water/water_surface.gdshader")
+
 ## Places a translucent water plane at sea level for each loaded chunk.
 ## Listens for chunk lifecycle signals to add/remove water.
 
@@ -47,10 +49,12 @@ func _register_signals() -> void:
 
 
 func _setup_material() -> void:
-	var shader := Shader.new()
-	shader.code = _get_water_shader_code()
+	# The shader is a real .gdshader file, not a GDScript string: it gets
+	# syntax highlighting, error lines that point at the shader, hot reload,
+	# and it shares water_common.gdshaderinc with the river surface so the
+	# two bodies of water are one material family.
 	_water_material = ShaderMaterial.new()
-	_water_material.shader = shader
+	_water_material.shader = WATER_SHADER
 	_water_material.set_shader_parameter("shore_color", _config.shore_color)
 	_water_material.set_shader_parameter("shallow_color", _config.shallow_color)
 	_water_material.set_shader_parameter("mid_color", _config.mid_color)
@@ -243,11 +247,11 @@ func _update_underwater_effect() -> void:
 		return
 
 	var water_surface_y := _sea_level
-	var river_system := _find_system_by_type(RiverSystem)
-	if river_system and river_system.has_method("get_water_surface_height_at"):
-		var river_surface_y = river_system.get_water_surface_height_at(cam.global_position)
+	var river_system := _find_system_by_type(RiverSystem) as RiverSystem
+	if river_system:
+		var river_surface_y := river_system.get_water_surface_height_at(cam.global_position)
 		if river_surface_y != -INF:
-			water_surface_y = maxf(water_surface_y, float(river_surface_y))
+			water_surface_y = maxf(water_surface_y, river_surface_y)
 
 	var underwater := cam.global_position.y < water_surface_y
 
@@ -281,196 +285,6 @@ func _update_underwater_effect() -> void:
 ## Read sea level from SharedWorld (written by TerrainSystem at init)
 func _find_sea_level() -> float:
 	return SharedWorld.sea_level
-
-
-func _get_water_shader_code() -> String:
-	return """
-shader_type spatial;
-render_mode blend_mix, depth_draw_always, cull_back, specular_schlick_ggx;
-
-// ── 4-zone depth colors ──
-uniform vec4 shore_color : source_color = vec4(0.30, 0.65, 0.60, 0.35);
-uniform vec4 shallow_color : source_color = vec4(0.15, 0.55, 0.60, 0.5);
-uniform vec4 mid_color : source_color = vec4(0.08, 0.28, 0.42, 0.75);
-uniform vec4 deep_color : source_color = vec4(0.03, 0.08, 0.20, 0.92);
-uniform float mid_depth_start = 0.25;
-uniform float deep_depth_start = 0.6;
-
-// ── Foam ──
-uniform vec4 foam_color : source_color = vec4(0.92, 0.95, 1.0, 0.9);
-uniform float foam_width = 0.8;
-uniform float foam_noise_scale = 8.0;
-
-// ── Waves ──
-uniform float wave_amplitude = 0.12;
-uniform float wave_frequency = 1.5;
-uniform float wave_speed = 0.8;
-uniform float shore_depth_range = 4.0;
-uniform float shore_wave_min_depth = 0.15;
-uniform float shore_wave_max_depth = 0.8;
-uniform float shore_break_strength = 0.55;
-
-// ── Material ──
-uniform float roughness : hint_range(0.0, 1.0) = 0.05;
-uniform float metallic : hint_range(0.0, 1.0) = 0.3;
-uniform float time = 0.0;
-uniform float refraction_amount = 0.7;
-uniform float fresnel_strength = 0.42;
-
-// ── Caustics ──
-uniform bool caustics_enabled = true;
-uniform float caustics_strength = 0.3;
-uniform float caustics_speed = 1.2;
-
-uniform sampler2D DEPTH_TEXTURE : hint_depth_texture, filter_linear_mipmap;
-uniform sampler2D SCREEN_TEXTURE : hint_screen_texture, filter_linear_mipmap;
-uniform sampler2D terrain_depth_tex : source_color, filter_linear_mipmap, repeat_disable;
-
-varying float v_terrain_depth;
-varying vec3 v_world_pos;
-
-// ── Vertex: broad swell + shore break ──
-void vertex() {
-	v_terrain_depth = texture(terrain_depth_tex, UV).r;
-	vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	v_world_pos = world_pos;
-
-	float depth_factor = smoothstep(shore_wave_min_depth, shore_wave_max_depth, v_terrain_depth);
-
-	float swell1 = sin(world_pos.x * 0.04 + world_pos.z * 0.015 + time * wave_speed * 0.4) * wave_amplitude * 0.7;
-	float swell2 = sin(world_pos.z * 0.035 - world_pos.x * 0.012 + time * wave_speed * 0.3) * wave_amplitude * 0.5;
-	float shore_wave = sin((world_pos.x * 0.35 + world_pos.z * 1.1) * wave_frequency * 2.2 - time * wave_speed * 4.0) * wave_amplitude * shore_break_strength;
-
-	float displacement = (swell1 + swell2) * depth_factor + shore_wave * (1.0 - depth_factor) * v_terrain_depth;
-	VERTEX.y += displacement;
-}
-
-// ── Wave normal (6 octaves, resolution-independent) ──
-vec3 wave_normal(vec2 pos, float t) {
-	float dx = 0.0;
-	float dz = 0.0;
-
-	vec2 d1 = vec2(0.98, 0.18); float f1 = 0.08;
-	float p1 = dot(pos, d1) * f1 + t * 0.35;
-	dx += cos(p1) * d1.x * f1 * 0.45;
-	dz += cos(p1) * d1.y * f1 * 0.45;
-
-	vec2 d2 = vec2(0.39, 0.92); float f2 = 0.12;
-	float p2 = dot(pos, d2) * f2 + t * 0.28;
-	dx += cos(p2) * d2.x * f2 * 0.35;
-	dz += cos(p2) * d2.y * f2 * 0.35;
-
-	vec2 d3 = vec2(-0.75, 0.66); float f3 = 0.22;
-	float p3 = dot(pos, d3) * f3 + t * 0.45;
-	dx += cos(p3) * d3.x * f3 * 0.25;
-	dz += cos(p3) * d3.y * f3 * 0.25;
-
-	vec2 d4 = vec2(0.55, -0.84); float f4 = 0.45;
-	float p4 = dot(pos, d4) * f4 + t * 0.6;
-	dx += cos(p4) * d4.x * f4 * 0.15;
-	dz += cos(p4) * d4.y * f4 * 0.15;
-
-	vec2 d5 = vec2(-0.42, -0.91); float f5 = 0.65;
-	float p5 = dot(pos, d5) * f5 + t * 0.72;
-	dx += cos(p5) * d5.x * f5 * 0.10;
-	dz += cos(p5) * d5.y * f5 * 0.10;
-
-	vec2 d6 = vec2(0.87, 0.50); float f6 = 1.1;
-	float p6 = dot(pos, d6) * f6 + t * 0.9;
-	dx += cos(p6) * d6.x * f6 * 0.06;
-	dz += cos(p6) * d6.y * f6 * 0.06;
-
-	return normalize(vec3(-dx, 1.0, -dz));
-}
-
-// ── Caustics pattern (animated voronoi-like) ──
-float caustic_pattern(vec2 uv, float t) {
-	vec2 p = uv * 3.0;
-	float c = 0.0;
-	c += sin(p.x * 5.3 + t * 1.1) * sin(p.y * 4.7 - t * 0.9) * 0.5 + 0.5;
-	c *= sin(p.x * 3.1 - t * 0.7) * sin(p.y * 6.2 + t * 1.3) * 0.5 + 0.5;
-	c += sin((p.x + p.y) * 4.0 + t * 0.5) * 0.3;
-	return clamp(c, 0.0, 1.0);
-}
-
-// ── 4-zone color blend based on terrain depth ──
-vec4 depth_zone_color(float d) {
-	if (d < mid_depth_start) {
-		float t = d / max(mid_depth_start, 0.001);
-		return mix(shore_color, shallow_color, smoothstep(0.0, 1.0, t));
-	} else if (d < deep_depth_start) {
-		float t = (d - mid_depth_start) / max(deep_depth_start - mid_depth_start, 0.001);
-		return mix(shallow_color, mid_color, smoothstep(0.0, 1.0, t));
-	} else {
-		float t = (d - deep_depth_start) / max(1.0 - deep_depth_start, 0.001);
-		return mix(mid_color, deep_color, smoothstep(0.0, 1.0, min(t, 1.0)));
-	}
-}
-
-void fragment() {
-	float depth_factor = smoothstep(shore_wave_min_depth, shore_wave_max_depth, v_terrain_depth);
-
-	vec3 wn = wave_normal(v_world_pos.xz, time * wave_speed);
-
-	// Screen-space depth
-	float depth_raw = textureLod(DEPTH_TEXTURE, SCREEN_UV, 0.0).r;
-	vec4 ndc = vec4(SCREEN_UV * 2.0 - 1.0, depth_raw, 1.0);
-	vec4 view_depth = INV_PROJECTION_MATRIX * ndc;
-	view_depth.xyz /= view_depth.w;
-	float scene_depth = -view_depth.z;
-	float water_depth = -VERTEX.z;
-	float depth_diff = scene_depth - water_depth;
-
-	// 4-zone depth color
-	float depth_blend = max(clamp(depth_diff / shore_depth_range, 0.0, 1.0), v_terrain_depth);
-	vec4 water_col = depth_zone_color(depth_blend);
-	float fresnel = pow(1.0 - clamp(dot(normalize(VIEW), normalize(wn)), 0.0, 1.0), 3.0);
-
-	// Shore foam — animated, patchy, with noise breakup
-	float foam_factor = 1.0 - clamp(depth_diff / foam_width, 0.0, 1.0);
-	foam_factor = max(foam_factor, (1.0 - smoothstep(0.03, 0.2, v_terrain_depth)) * 0.9);
-
-	// Multi-frequency foam noise for organic look
-	float fn1 = sin(v_world_pos.x * foam_noise_scale + time * 2.0) * 0.5 + 0.5;
-	float fn2 = sin(v_world_pos.z * foam_noise_scale * 0.75 + time * 1.5) * 0.5 + 0.5;
-	float fn3 = sin((v_world_pos.x + v_world_pos.z) * foam_noise_scale * 0.5 - time * 1.8) * 0.5 + 0.5;
-	float foam_noise = fn1 * fn2 * 0.7 + fn3 * 0.3;
-	foam_factor *= step(0.25, foam_noise + foam_factor * 0.4);
-
-	// Rolling shore break: moves in wave direction
-	float shore_break = sin(v_world_pos.z * 1.5 - time * wave_speed * 3.0) * 0.5 + 0.5;
-	shore_break *= (1.0 - smoothstep(0.05, 0.25, v_terrain_depth));
-	foam_factor = max(foam_factor, shore_break * 0.6);
-
-	// Crest foam from wave steepness
-	float crest = pow(1.0 - clamp(wn.y, 0.0, 1.0), 3.0) * 2.0;
-	foam_factor = max(foam_factor, crest * depth_factor * 0.5);
-
-	vec3 final_color = mix(water_col.rgb, foam_color.rgb, foam_factor * 0.7);
-	float final_alpha = mix(water_col.a, foam_color.a, foam_factor * 0.5);
-
-	// Caustics on shallow seafloor
-	if (caustics_enabled) {
-		float caustic_mask = (1.0 - smoothstep(0.0, 0.4, v_terrain_depth));
-		float caustic = caustic_pattern(v_world_pos.xz * 0.15, time * caustics_speed);
-		final_color += vec3(caustic * caustics_strength * caustic_mask);
-	}
-
-	// Refraction
-	vec2 refraction_uv = SCREEN_UV + wn.xz * 0.02 * refraction_amount * (1.0 - depth_blend * 0.65);
-	vec3 refracted = textureLod(SCREEN_TEXTURE, refraction_uv, 0.0).rgb;
-	final_color = mix(refracted, final_color, clamp(final_alpha + depth_blend * 0.25, 0.0, 1.0));
-	final_color += vec3(0.18, 0.22, 0.26) * fresnel * fresnel_strength;
-	final_color = mix(final_color, water_col.rgb, clamp(depth_blend * 0.35 + fresnel * 0.15, 0.0, 1.0));
-
-	ALBEDO = final_color;
-	ALPHA = clamp(final_alpha + depth_blend * 0.26 + fresnel * 0.12, 0.0, 1.0);
-	NORMAL = mix(vec3(0.0, 1.0, 0.0), wn, depth_factor);
-	ROUGHNESS = mix(0.02, roughness, depth_blend);
-	METALLIC = metallic;
-	SPECULAR = 0.5;
-}
-"""
 
 
 func _build_depth_texture(heightmap: PackedFloat32Array) -> ImageTexture:

@@ -5,6 +5,11 @@
 [node name="Taiga" type="Node"]
 script = ExtResource("1_bd")
 biome_name = &"taiga"
+foliage_lushness = 0.64
+foliage_dryness = 0.16
+foliage_scale_multiplier = 1.08
+foliage_density_bonus = 0.38
+foliage_sprite_weights = PackedFloat32Array(2.0, 0.0, 1.0, 1.0)
 terrain_color = Color(0.20, 0.35, 0.22, 1)
 ideal_temperature = 0.25
 temperature_tolerance = 0.2

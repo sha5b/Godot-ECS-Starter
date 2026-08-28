@@ -12,7 +12,7 @@ height = 0.25
 [sub_resource type="StandardMaterial3D" id="Mat"]
 albedo_color = Color(0.65, 0.55, 0.42, 1)
 
-[node name="Rabbit" type="Node"]
+[node name="Rabbit" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"rabbit"
 spawn_weight = 3.0

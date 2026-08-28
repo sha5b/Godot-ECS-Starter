@@ -3,6 +3,12 @@ extends Node
 
 ## Global configuration for the procedural world.
 ## Seed, dimensions, chunk settings, and debug flags.
+##
+## Autoloaded as a SCENE (autoloads/game_config.tscn), not as a bare script.
+## Godot cannot show the inspector for a script autoload, so every @export
+## below would be invisible and unsavable. Open game_config.tscn, select the
+## root, and tune the whole world from the inspector — the values persist in
+## that scene file.
 
 ## World seed — same seed = same world every time
 @export var world_seed: int = 42

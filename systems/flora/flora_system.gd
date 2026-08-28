@@ -15,12 +15,6 @@ extends BaseSystem
 ## each MultiMesh inside a tight bounding box, so frustum culling and the view
 ## distance still throw away flora the camera cannot see.
 
-const SHADER_GROUND_COVER_ENTRIES := {
-	&"grass": true,
-	&"flower": true,
-	&"alpine_flower": true,
-}
-
 ## Transform written into an instance slot that must not draw.
 const HIDDEN_TRANSFORM := Transform3D(Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO)
 
@@ -117,7 +111,7 @@ func _register_signals() -> void:
 
 func system_process(delta: float) -> void:
 	if not _biome_system:
-		_biome_system = _find_system_by_type(BiomeSystem)
+		_biome_system = _find_system_by_type(BiomeSystem) as BiomeSystem
 	_update_flora_motion(delta)
 	_update_lifecycle(delta)
 
@@ -171,7 +165,7 @@ func _pick_flora_entry(rng: RandomNumberGenerator, biome_name: StringName) -> Fl
 	for entry in _flora_entries:
 		if entry.get_child_count() == 0:
 			continue
-		if SHADER_GROUND_COVER_ENTRIES.has(entry.entry_name):
+		if entry.drawn_by_foliage_shader:
 			continue
 		if not entry.is_allowed_in_biome(biome_name):
 			continue

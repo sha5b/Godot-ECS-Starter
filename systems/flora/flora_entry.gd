@@ -1,5 +1,5 @@
 class_name FloraEntry
-extends Node
+extends Node3D
 
 ## Defines a single flora type as a drag-and-drop scene.
 ## The 3D mesh nodes are children of this node — one file = one content type.
@@ -11,6 +11,15 @@ extends Node
 ## 4. Drag the .tscn as a child of FloraSystem — done!
 
 @export var entry_name: StringName = &"tree"
+
+@export_group("Rendering")
+## This type is drawn by the FoliageSystem's ground-cover shader instead of
+## the flora MultiMesh batches. Set it on grass-like entries so the two
+## renderers do not both plant the same cover; leave it off for props.
+##
+## This used to be a hardcoded name list inside FloraSystem, which silently
+## dropped any new entry that happened to share one of those names.
+@export var drawn_by_foliage_shader: bool = false
 
 @export_group("Spawn Rules")
 ## Relative spawn weight (higher = more common compared to other flora)

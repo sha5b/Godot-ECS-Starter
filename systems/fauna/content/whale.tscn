@@ -19,7 +19,7 @@ roughness = 0.6
 albedo_color = Color(0.22, 0.27, 0.35, 1)
 roughness = 0.65
 
-[node name="Whale" type="Node"]
+[node name="Whale" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"whale"
 spawn_weight = 0.3

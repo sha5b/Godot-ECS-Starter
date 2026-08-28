@@ -24,12 +24,50 @@ extends Node
 ## How much to flatten terrain near sea level (0 = none, 1 = full)
 @export_range(0.0, 1.0) var coastal_flattening: float = 0.25
 
+## Exponent applied to land elevation. Summed noise is symmetric, which puts
+## as much terrain high as low and reads as rolling hills everywhere. An
+## exponent above 1 makes low ground common and high ground rare, which is
+## what real elevation histograms look like.
+@export_range(1.0, 4.0) var land_elevation_power: float = 1.8
+
 @export_group("Continent Noise")
 ## Very low frequency noise shaping continents/islands
 @export var continent_frequency: float = 0.0015
 
+## Octaves of the continent field.
+##
+## This used to be unset, which meant FastNoiseLite's default of 5 FBM
+## octaves: the top octave landed at ~0.024, FINER than the detail layer,
+## so the "continent" field was really a second detail layer and the world
+## had no continent-scale structure at all. Keep this at 1-2.
+@export_range(1, 4) var continent_octaves: int = 2
+
 ## Continent noise contribution (blended with detail noise)
 @export_range(0.0, 1.0) var continent_weight: float = 0.5
+
+## Fraction of the world above sea level. The sea threshold is solved from
+## the continent field at startup, so this value means what it says.
+@export_range(0.05, 0.95) var continent_land_fraction: float = 0.38
+
+## Width of the coastal ramp, in continent-noise units. Wider = broader
+## continental shelves and gentler coasts.
+@export_range(0.02, 0.6) var continent_shelf_width: float = 0.16
+
+@export_group("Mountain Belts")
+## Confine ridged mountains to orogeny belts instead of raising them evenly
+## across every landmass. Real ranges are long curved chains along plate
+## margins; scattering ridge noise over all land is what makes terrain read
+## as uniform lumpy hills with no skyline.
+@export var orogeny_enabled: bool = true
+
+## Frequency of the belt field. Lower = longer, wider-spaced ranges.
+@export var orogeny_frequency: float = 0.0009
+
+## Fraction of the belt field's range counted as "inside a belt".
+@export_range(0.05, 1.0) var orogeny_coverage: float = 0.34
+
+## Exponent on the belt mask. Higher = narrower spines with steeper flanks.
+@export_range(1.0, 8.0) var orogeny_belt_sharpness: float = 2.6
 
 @export_group("Detail Noise")
 ## Detail noise frequency — higher = more bumpy small features
@@ -57,8 +95,10 @@ extends Node
 ## Lacunarity for ridged noise
 @export var ridged_lacunarity: float = 2.0
 
-## Ridged noise contribution weight (blended into final height)
-@export_range(0.0, 1.0) var ridged_weight: float = 0.45
+## Ridged noise contribution weight. This is the height of a range crest as
+## a fraction of height_scale, ON TOP of the land base — so peaks inside a
+## belt reach past height_scale while the plains around them stay low.
+@export_range(0.0, 1.5) var ridged_weight: float = 0.78
 
 ## Exponent applied to ridged noise to sharpen peaks (higher = sharper)
 @export_range(0.5, 4.0) var ridged_power: float = 1.8
@@ -98,6 +138,10 @@ extends Node
 
 ## Fraction of terrain forced below walkable slope (0 = no enforcement)
 @export_range(0.0, 1.0) var walkable_enforcement: float = 0.3
+
+## Normalized elevation above which walkability enforcement is skipped, so
+## high mountains stay unclimbably steep instead of being graded into ramps.
+@export_range(0.0, 1.0) var walkable_max_normalized_height: float = 0.55
 
 @export_group("Traversal")
 @export var traversal_enabled: bool = true
@@ -159,13 +203,15 @@ extends Node
 
 @export_group("Voxel Grid")
 ## Number of vertical layers in the density grid (Y resolution)
-@export_range(8, 64) var vertical_resolution: int = 48
+@export_range(8, 64) var vertical_resolution: int = 54
 
 ## Lowest Y value of the density grid (world units)
 @export var grid_min_y: float = -30.0
 
-## Highest Y value of the density grid (world units)
-@export var grid_max_y: float = 40.0
+## Highest Y value of the density grid (world units).
+## Must clear the tallest peak height_scale can produce, or summits are
+## sliced flat by the top of the density volume.
+@export var grid_max_y: float = 48.0
 
 ## Density threshold for surface extraction (iso-level)
 @export_range(-1.0, 1.0) var surface_threshold: float = 0.0
@@ -364,4 +410,12 @@ extends Node
 
 ## Number of thermal erosion passes
 @export var thermal_iterations: int = 3
+
+## Normalized elevation (0 = sea level, 1 = height_scale) above which thermal
+## erosion fades out. Erosion applied at full strength everywhere planes off
+## exactly the ridgelines and cliffs that give a landscape a skyline.
+@export_range(0.0, 1.0) var thermal_high_ground_start: float = 0.45
+
+## Normalized elevation where thermal erosion stops entirely.
+@export_range(0.0, 1.0) var thermal_high_ground_end: float = 0.72
 

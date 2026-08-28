@@ -11,7 +11,7 @@ roughness = 0.7
 transparency = 1
 alpha_scissor_threshold = 0.3
 
-[node name="Seaweed" type="Node"]
+[node name="Seaweed" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"seaweed"
 spawn_weight = 3.0

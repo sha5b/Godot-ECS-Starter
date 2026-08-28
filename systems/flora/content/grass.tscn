@@ -10,9 +10,10 @@ albedo_color = Color(0.30, 0.55, 0.18, 1)
 transparency = 1
 alpha_scissor_threshold = 0.5
 
-[node name="Grass" type="Node"]
+[node name="Grass" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"grass"
+drawn_by_foliage_shader = true
 spawn_weight = 5.0
 min_height = 0.01
 max_height = 0.5

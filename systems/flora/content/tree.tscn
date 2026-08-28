@@ -22,7 +22,7 @@ rings = 4
 albedo_color = Color(0.18, 0.45, 0.12, 1)
 roughness = 0.85
 
-[node name="Tree" type="Node"]
+[node name="Tree" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"tree"
 spawn_weight = 3.0

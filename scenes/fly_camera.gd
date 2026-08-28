@@ -1,7 +1,16 @@
 class_name FlyCamera
 extends Camera3D
 
-## Simple fly camera for testing. WASD + mouse look.
+## Simple fly camera for testing. Mouse look plus the shared world-camera
+## actions from Project Settings > Input Map.
+
+const ACTION_FORWARD := &"world_pan_forward"
+const ACTION_BACK := &"world_pan_back"
+const ACTION_LEFT := &"world_pan_left"
+const ACTION_RIGHT := &"world_pan_right"
+const ACTION_UP := &"world_fly_up"
+const ACTION_DOWN := &"world_fly_down"
+const ACTION_FAST := &"world_pan_fast"
 
 @export var move_speed: float = 20.0
 @export var fast_speed: float = 60.0
@@ -36,35 +45,23 @@ func _unhandled_input(event: InputEvent) -> void:
 		rotation.x -= event.relative.y * mouse_sensitivity
 		rotation.x = clampf(rotation.x, deg_to_rad(-89.0), deg_to_rad(89.0))
 
-	if event is InputEventKey:
-		if event.keycode == KEY_ESCAPE and event.pressed:
-			if _mouse_captured:
-				if is_inside_tree():
-					Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-				_mouse_captured = false
-			else:
-				if is_inside_tree():
-					Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-				_mouse_captured = true
+	if event.is_action_pressed(&"ui_cancel"):
+		_mouse_captured = not _mouse_captured
+		if is_inside_tree():
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if _mouse_captured \
+				else Input.MOUSE_MODE_VISIBLE
 
 
 func _process(delta: float) -> void:
 	var input_dir := Vector3.ZERO
 
-	if Input.is_key_pressed(KEY_W):
-		input_dir -= transform.basis.z
-	if Input.is_key_pressed(KEY_S):
-		input_dir += transform.basis.z
-	if Input.is_key_pressed(KEY_A):
-		input_dir -= transform.basis.x
-	if Input.is_key_pressed(KEY_D):
-		input_dir += transform.basis.x
-	if Input.is_key_pressed(KEY_SPACE):
-		input_dir += Vector3.UP
-	if Input.is_key_pressed(KEY_CTRL):
-		input_dir += Vector3.DOWN
+	input_dir += transform.basis.z * Input.get_axis(
+		ACTION_FORWARD, ACTION_BACK)
+	input_dir += transform.basis.x * Input.get_axis(
+		ACTION_LEFT, ACTION_RIGHT)
+	input_dir += Vector3.UP * Input.get_axis(ACTION_DOWN, ACTION_UP)
 
-	var speed := fast_speed if Input.is_key_pressed(KEY_SHIFT) else move_speed
+	var speed := fast_speed if Input.is_action_pressed(ACTION_FAST) else move_speed
 
 	if input_dir.length_squared() > 0.0:
 		input_dir = input_dir.normalized()

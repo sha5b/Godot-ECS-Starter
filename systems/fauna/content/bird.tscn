@@ -18,7 +18,7 @@ albedo_color = Color(0.3, 0.3, 0.35, 1)
 [sub_resource type="StandardMaterial3D" id="Mat_wing"]
 albedo_color = Color(0.25, 0.25, 0.30, 1)
 
-[node name="Bird" type="Node"]
+[node name="Bird" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"bird"
 spawn_weight = 2.5

@@ -22,7 +22,7 @@ roughness = 0.8
 albedo_color = Color(0.15, 0.12, 0.10, 1)
 roughness = 0.75
 
-[node name="Spider" type="Node"]
+[node name="Spider" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"spider"
 spawn_weight = 1.5

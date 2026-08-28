@@ -12,7 +12,7 @@ rings = 2
 albedo_color = Color(0.18, 0.35, 0.15, 1)
 roughness = 0.95
 
-[node name="CaveMoss" type="Node"]
+[node name="CaveMoss" type="Node3D"]
 script = ExtResource("1_fe")
 entry_name = &"cave_moss"
 spawn_weight = 2.5
