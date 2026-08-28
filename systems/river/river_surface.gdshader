@@ -13,6 +13,13 @@ render_mode blend_mix, depth_draw_always, cull_disabled, specular_schlick_ggx;
 uniform vec4 foam_color : source_color = vec4(0.92, 0.95, 1.0, 0.9);
 uniform float foam_width = 0.7;
 uniform float foam_noise_scale = 7.0;
+
+/// Width of the foam band along each bank, in metres.
+uniform float bank_foam_width : hint_range(0.05, 3.0) = 0.35;
+
+/// Channel half-width in metres, pushed per chunk so bank foam is a real
+/// distance rather than a fraction of however wide the strip happens to be.
+uniform float channel_half_width = 2.0;
 uniform float flow_speed : hint_range(0.0, 5.0) = 1.2;
 uniform float wave_amplitude = 0.05;
 uniform float wave_frequency = 1.4;
@@ -25,7 +32,7 @@ uniform float chunk_size = 32.0;
 
 // Wavelength of the largest ripple on the channel, in metres. Much shorter
 // than the ocean's swell — a river is a confined, fast, choppy surface.
-uniform float ripple_wavelength = 7.0;
+uniform float ripple_wavelength = 2.6;
 
 uniform sampler2D DEPTH_TEXTURE : hint_depth_texture, filter_linear_mipmap;
 uniform sampler2D SCREEN_TEXTURE : hint_screen_texture, filter_linear_mipmap;
@@ -35,15 +42,11 @@ varying vec3 v_world_pos;
 varying float v_terrain_depth;
 varying float v_outlet;
 
-float ripple_base_freq() {
-	return 6.2831853 / max(ripple_wavelength, 0.5);
-}
-
 // Channel-aligned chop: the shared wave field, advected along the flow so
 // ripples travel downstream instead of standing still in world space.
 vec3 river_normal(vec2 pos, float along, float t) {
 	vec2 drift = vec2(0.0, along * 4.0 + t * flow_speed * 2.4);
-	vec3 wn = water_normal(pos + drift, t, ripple_base_freq(), wave_amplitude * 2.2);
+	vec3 wn = water_normal(pos + drift, t, ripple_wavelength, 0.22);
 	// Stretch across the channel: real flow lines are long, not round.
 	return normalize(vec3(wn.x * 0.55, wn.y, wn.z * 1.45));
 }
@@ -56,8 +59,8 @@ void vertex() {
 	// 1 where the channel opens into the sea.
 	v_outlet = clamp(COLOR.g, 0.0, 1.0);
 	float depth_factor = mix(0.35, 1.0, v_terrain_depth);
-	float chop = water_height(v_world_pos.xz + vec2(0.0, UV.y * 4.0),
-		time * flow_speed, ripple_base_freq(), wave_amplitude);
+	float chop = water_displacement(v_world_pos.xz + vec2(0.0, UV.y * 4.0),
+		time * flow_speed, ripple_wavelength, wave_amplitude).y;
 	// The chop dies out at the mouth so the river surface lies flat against
 	// the ocean plane it is fading into.
 	VERTEX.y += chop * depth_factor * (1.0 - v_outlet);
@@ -75,7 +78,13 @@ void fragment() {
 	float depth_diff = scene_depth - water_depth;
 	float depth_blend = max(clamp(depth_diff / 1.8, 0.0, 1.0), v_terrain_depth);
 	vec4 water_col = depth_zone_color(depth_blend);
-	float edge_factor = 1.0 - smoothstep(0.08, 0.30, min(UV.x, 1.0 - UV.x));
+	// Bank foam as a fraction of the channel width. A fixed UV band means a
+	// two-metre creek is 60% foam and renders as a white stripe painted on the
+	// hillside, which is exactly how every narrow river in this world looked.
+	// Scaling by width keeps the foam a real-world band instead.
+	float half_width_m = max(channel_half_width, 0.2);
+	float edge_uv = clamp(bank_foam_width / half_width_m, 0.02, 0.35);
+	float edge_factor = 1.0 - smoothstep(edge_uv * 0.4, edge_uv, min(UV.x, 1.0 - UV.x));
 	float foam_factor = 1.0 - clamp(depth_diff / max(foam_width, 0.001), 0.0, 1.0);
 	foam_factor = max(foam_factor, edge_factor * (1.0 - smoothstep(0.12, 0.55, depth_t)));
 	float fn1 = sin(v_world_pos.x * foam_noise_scale + time * 2.0) * 0.5 + 0.5;

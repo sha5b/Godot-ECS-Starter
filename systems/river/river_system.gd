@@ -61,6 +61,8 @@ func _setup_material() -> void:
 	_river_material.set_shader_parameter("foam_width", _config.foam_width)
 	_river_material.set_shader_parameter("foam_noise_scale", _config.foam_noise_scale)
 	_river_material.set_shader_parameter("time", 0.0)
+	_river_material.set_shader_parameter("channel_half_width",
+		maxf(_config.river_width_max * 0.5, 0.3))
 
 
 # ── Chunk lifecycle ──────────────────────────────────────────────────────────
@@ -576,6 +578,30 @@ func _sample_render_path(render_path: Array, heightmap: PackedFloat32Array, res:
 		var bed_y := _sample_hm_bilinear(heightmap, res, origin_x, origin_z, step, wx, wz)
 		var original_surface_y := float(point.get("surface_y", bed_y))
 		var channel_depth := maxf(original_surface_y - bed_y, 0.0)
+		# No carved channel here.
+		#
+		# Terrain deliberately reduces its river carve on cliffs (see
+		# river_cliff_protection_slope), so on steep ground the bed is simply
+		# the hillside. Drawing a water surface there produces a flat ribbon
+		# pasted onto a 40-degree slope — the single worst-looking thing a
+		# river renderer can do. Water on that gradient is a cascade, and
+		# leaving the gap is closer to the truth than painting a ribbon.
+		if channel_depth < _config.min_channel_depth:
+			# Carries a real centre so smoothing and tangents stay continuous
+			# across the gap; only the surface strip stops.
+			sampled_points.append({
+				"break": true,
+				"center": Vector3(wx, bed_y, wz),
+				"half_width": base_half_width,
+				"depth_t": 0.0,
+				"bed_y": bed_y,
+				"flow_dir_x": float(point.get("flow_dir_x", 0.0)),
+				"flow_dir_z": float(point.get("flow_dir_z", 1.0)),
+				"uv_v": accumulated_v,
+				"outlet_t": outlet_t,
+			})
+			prev_water_y = INF
+			continue
 		var min_fill := clampf(maxf(channel_depth * 0.35, half_width * 0.18), water_lift, 0.28)
 		var max_surface_y := original_surface_y - 0.02
 		var target_water_y := bed_y + min_fill
@@ -708,6 +734,10 @@ func _emit_render_path(st: SurfaceTool, sampled_points: Array,
 	for i in range(sampled_points.size() - 1):
 		var a: Dictionary = sampled_points[i]
 		var b: Dictionary = sampled_points[i + 1]
+		# A break marks a cascade section with no carved channel; the strip
+		# stops on one side of it and starts again on the other.
+		if bool(a.get("break", false)) or bool(b.get("break", false)):
+			continue
 		var left_a: Vector3 = a["left"]
 		var right_a: Vector3 = a["right"]
 		var left_b: Vector3 = b["left"]

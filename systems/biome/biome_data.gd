@@ -10,6 +10,14 @@ extends Node
 
 @export var biome_name: StringName = &"plains"
 
+## Can this biome be chosen for the open surface?
+##
+## Turn it off for interiors (caves) that are placed by their own system.
+## Without this, a cave biome with wide climate tolerances competes for open
+## ground and wins it — cave_interior was classifying 6.6% of the world's
+## surface before this existed.
+@export var surface_biome: bool = true
+
 @export_group("Terrain Appearance")
 ## Color used for terrain vertex coloring in this biome
 @export var terrain_color: Color = Color(0.35, 0.55, 0.20)
@@ -84,6 +92,17 @@ extends Node
 
 ## Score how well a given climate matches this biome (higher = better match)
 ## Returns 0.0 if outside tolerance, up to 1.0 for perfect match.
+##
+## Scores are weighted by CLIMATE SPECIFICITY. Each axis is scored as distance
+## relative to that biome's own tolerance, which quietly rewards vagueness: a
+## biome claiming a 0.5-wide temperature band scores near 1.0 across half the
+## world, and beats a specialist with a 0.2 band everywhere the specialist is
+## not sitting exactly on its ideal. Ecologically it is backwards — a narrow
+## niche should win inside its niche. Weighting by the inverse of the climate
+## envelope restores that, while generalists still pick up the leftovers.
+##
+## Height is deliberately excluded from the weighting: an altitude band is a
+## hard physical constraint, not a claim about how picky a biome is.
 func score(temperature: float, moisture: float, height_normalized: float) -> float:
 	var t_dist := absf(temperature - ideal_temperature)
 	var m_dist := absf(moisture - ideal_moisture)
@@ -96,7 +115,12 @@ func score(temperature: float, moisture: float, height_normalized: float) -> flo
 	var m_score := 1.0 - (m_dist / moisture_tolerance)
 	var h_score := 1.0 - (h_dist / height_tolerance)
 
-	return t_score * m_score * h_score
+	# 0.25 x 0.25 is treated as the reference envelope, so a typical biome
+	# keeps a weight near 1 and only the extremes are pushed around.
+	var envelope := maxf(temperature_tolerance * moisture_tolerance, 0.0001)
+	var specificity := sqrt(0.0625 / envelope)
+
+	return t_score * m_score * h_score * specificity
 
 
 ## Weighted pick of a ground-cover sprite index for this biome.
@@ -115,3 +139,16 @@ func pick_foliage_sprite(rng: RandomNumberGenerator, sprite_count: int) -> int:
 		if roll <= cumulative:
 			return i
 	return 0
+
+
+## Soft match score with no tolerance cutoff, always > 0.
+##
+## score() returns exactly 0.0 outside tolerance, so a climate that suits no
+## biome used to fall through to whichever biome happened to be listed first —
+## producing large arbitrary patches of that biome wherever the world drifted
+## outside every tolerance band. This ranks the NEAREST biome instead.
+func affinity(temperature: float, moisture: float, height_normalized: float) -> float:
+	var t_dist := absf(temperature - ideal_temperature) / maxf(temperature_tolerance, 0.001)
+	var m_dist := absf(moisture - ideal_moisture) / maxf(moisture_tolerance, 0.001)
+	var h_dist := absf(height_normalized - ideal_height) / maxf(height_tolerance, 0.001)
+	return 1.0 / (1.0 + t_dist * t_dist + m_dist * m_dist + h_dist * h_dist)

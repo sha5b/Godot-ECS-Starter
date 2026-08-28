@@ -45,6 +45,12 @@ extends Node
 
 @export var metallic: float = 0.12
 
+@export_group("Channel")
+## A river surface is only drawn where the terrain actually carved a channel
+## at least this deep. Below it the water is a cascade down bare rock, and a
+## flat ribbon on that slope looks worse than no ribbon at all.
+@export_range(0.0, 2.0) var min_channel_depth: float = 0.18
+
 @export_group("Sea Outlet")
 ## Distance (world units above sea level) over which a river hands its
 ## surface over to the ocean.

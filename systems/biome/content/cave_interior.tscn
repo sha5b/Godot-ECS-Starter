@@ -5,6 +5,7 @@
 [node name="CaveInterior" type="Node"]
 script = ExtResource("1_bd")
 biome_name = &"cave_interior"
+surface_biome = false
 terrain_color = Color(0.28, 0.26, 0.24, 1)
 ideal_temperature = 0.4
 temperature_tolerance = 0.5

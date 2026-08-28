@@ -10,6 +10,10 @@ var _config: WaterConfig
 var _water_material: ShaderMaterial
 var _water_mesh: PlaneMesh
 var _sea_level: float = 0.0
+
+## Wave-bearing and sea state, eased toward what the weather is asking for.
+var _sea_wind_dir: Vector2 = Vector2.RIGHT
+var _sea_state: float = 0.3
 var _sea_level_found: bool = false
 
 ## Chunk coord → MeshInstance3D
@@ -81,8 +85,11 @@ func _setup_material() -> void:
 func _setup_mesh() -> void:
 	_water_mesh = PlaneMesh.new()
 	_water_mesh.size = Vector2(GameConfig.chunk_size, GameConfig.chunk_size)
-	_water_mesh.subdivide_width = 128
-	_water_mesh.subdivide_depth = 128
+	# 32 subdivisions puts a vertex every metre across a chunk. The swell is
+	# 110 m long, so 128 (a vertex every 25 cm) bought no silhouette detail
+	# and cost 16x the vertices — each one evaluating the wave field.
+	_water_mesh.subdivide_width = 32
+	_water_mesh.subdivide_depth = 32
 
 
 func _on_terrain_chunk_ready(coord: Vector2i, heightmap: PackedFloat32Array) -> void:
@@ -131,19 +138,52 @@ func _remove_water_plane(coord: Vector2i) -> void:
 	_chunk_materials.erase(coord)
 
 
-func system_process(_delta: float) -> void:
+func system_process(delta: float) -> void:
 	if not active:
 		return
 	if _config.waves_enabled:
 		var time := Time.get_ticks_msec() / 1000.0
+		_update_sea_state(delta)
 		for coord in _chunk_materials.keys():
 			var mat: ShaderMaterial = _chunk_materials[coord]
 			if mat:
-				mat.set_shader_parameter("time", time)
+				_push_wave_state(mat, time)
 		if _far_ocean_material:
-			_far_ocean_material.set_shader_parameter("time", time)
+			_push_wave_state(_far_ocean_material, time)
 	_update_far_ocean()
 	_update_underwater_effect()
+
+
+## Track the sea state the weather is driving the surface toward.
+##
+## A real sea does not change with the wind instantly: it takes hours to build
+## under a rising wind and longer to lay down again, and it always runs a
+## little behind the weather. Easing toward the target is what stops the ocean
+## from snapping between calm and storm the moment a weather state changes, and
+## why swell keeps rolling after the wind has dropped.
+func _update_sea_state(delta: float) -> void:
+	var wind := SharedWorld.wind_direction
+	var wind_xz := Vector2(wind.x, wind.z)
+	if wind_xz.length_squared() > 0.0001:
+		wind_xz = wind_xz.normalized()
+		# Waves swing round to a new wind slowly, so the swell can be running
+		# across the wind for a while after it shifts.
+		_sea_wind_dir = _sea_wind_dir.lerp(wind_xz, 1.0 - exp(-_config.sea_turn_rate * delta))
+		if _sea_wind_dir.length_squared() > 0.0001:
+			_sea_wind_dir = _sea_wind_dir.normalized()
+
+	var target := clampf(SharedWorld.wind_strength / maxf(_config.sea_state_full_wind, 0.001), 0.0, 1.0)
+	# Rain comes with weather, and weather comes with sea.
+	target = maxf(target, SharedWorld.rain_intensity * 0.75)
+	var rate := _config.sea_build_rate if target > _sea_state else _config.sea_calm_rate
+	_sea_state = lerpf(_sea_state, target, 1.0 - exp(-rate * delta))
+
+
+func _push_wave_state(mat: ShaderMaterial, time: float) -> void:
+	mat.set_shader_parameter("time", time)
+	mat.set_shader_parameter("wind_dir", _sea_wind_dir)
+	mat.set_shader_parameter("sea_state", _sea_state)
+	mat.set_shader_parameter("rain_intensity", SharedWorld.rain_intensity)
 
 
 # ── Far ocean ─────────────────────────────────────────────────────────────────
@@ -175,6 +215,10 @@ func _build_far_ocean() -> void:
 	var flat := Image.create(2, 2, false, Image.FORMAT_RF)
 	flat.fill(Color(1.0, 0.0, 0.0, 1.0))
 	material.set_shader_parameter("terrain_depth_tex", ImageTexture.create_from_image(flat))
+	# The ring is 8 triangles spanning hundreds of metres. Displacing those
+	# vertices does not make waves, it makes the whole outer ocean tilt in
+	# huge flat facets, so the ring is left dead flat and shaded by normals.
+	material.set_shader_parameter("displacement_scale", 0.0)
 	var instance := MeshInstance3D.new()
 	instance.name = "FarOcean"
 	instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

@@ -10,6 +10,8 @@ const GEO_SYSTEM_SCRIPT = preload("res://systems/geo/geo_system.gd")
 var _config: BiomeConfig
 var _temp_noise: FastNoiseLite
 var _moisture_noise: FastNoiseLite
+var _warp_noise_x: FastNoiseLite
+var _warp_noise_z: FastNoiseLite
 var _geo_system: GeoSystem
 
 ## Auto-discovered biome list (populated from children)
@@ -44,15 +46,33 @@ func _register_signals() -> void:
 
 
 func _setup_noise() -> void:
+	# Climate is a macro field. Left unset, FastNoiseLite runs 5 FBM octaves
+	# and the top one lands at detail scale, which speckles the biome map.
 	_temp_noise = FastNoiseLite.new()
 	_temp_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	_temp_noise.seed = GameConfig.world_seed + _config.temperature_seed_offset
 	_temp_noise.frequency = _config.temperature_frequency
+	_temp_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	_temp_noise.fractal_octaves = _config.climate_octaves
 
 	_moisture_noise = FastNoiseLite.new()
 	_moisture_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	_moisture_noise.seed = GameConfig.world_seed + _config.moisture_seed_offset
 	_moisture_noise.frequency = _config.moisture_frequency
+	_moisture_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
+	_moisture_noise.fractal_octaves = _config.climate_octaves
+
+	_warp_noise_x = FastNoiseLite.new()
+	_warp_noise_x.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_warp_noise_x.seed = GameConfig.world_seed + 7331
+	_warp_noise_x.frequency = _config.climate_warp_frequency
+	_warp_noise_x.fractal_type = FastNoiseLite.FRACTAL_NONE
+
+	_warp_noise_z = FastNoiseLite.new()
+	_warp_noise_z.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	_warp_noise_z.seed = GameConfig.world_seed + 9173
+	_warp_noise_z.frequency = _config.climate_warp_frequency
+	_warp_noise_z.fractal_type = FastNoiseLite.FRACTAL_NONE
 
 
 func _on_terrain_chunk_ready(coord: Vector2i, heightmap: PackedFloat32Array) -> void:
@@ -84,9 +104,12 @@ func _generate_biome_map(coord: Vector2i, heightmap: PackedFloat32Array) -> Pack
 			var world_x := origin_x + x * step
 			var world_z := origin_z + z * step
 
+			# Climate is sampled at a WARPED position, so biome borders meander
+			# instead of following the smooth gradients of the raw fields.
+			var climate := _warp_climate_position(world_x, world_z)
 			# Noise returns -1..1, remap to 0..1
-			var temperature_noise := (_temp_noise.get_noise_2d(world_x, world_z) + 1.0) * 0.5
-			var moisture_noise := (_moisture_noise.get_noise_2d(world_x, world_z) + 1.0) * 0.5
+			var temperature_noise := (_temp_noise.get_noise_2d(climate.x, climate.y) + 1.0) * 0.5
+			var moisture_noise := (_moisture_noise.get_noise_2d(climate.x, climate.y) + 1.0) * 0.5
 
 			# Normalize height: sea_level = 0.0, max terrain = 1.0
 			var h := heightmap[z * res + x]
@@ -95,7 +118,8 @@ func _generate_biome_map(coord: Vector2i, heightmap: PackedFloat32Array) -> Pack
 			var temperature := _get_temperature_at_world(world_x, world_z, temperature_noise)
 			var moisture := _get_moisture_at_world(world_x, world_z, moisture_noise, height_normalized)
 
-			var biome_idx := _find_biome(temperature, moisture, height_normalized)
+			var biome_idx := _find_biome_at(temperature, moisture, height_normalized,
+				world_x, world_z)
 			biome_map[z * res + x] = biome_idx
 
 	return biome_map
@@ -123,14 +147,92 @@ func _get_biome_names() -> String:
 	return ", ".join(names)
 
 
-## Find the best-scoring biome index using weighted scoring
+## Displace the climate lookup position by a low-frequency noise field.
+##
+## Domain warping is the cheapest way to make a procedural boundary look grown
+## rather than drawn: two extra noise samples turn every straight-ish climate
+## gradient into a meandering, fractal-edged border. The climate itself is
+## unchanged — only where each point reads it from.
+func _warp_climate_position(world_x: float, world_z: float) -> Vector2:
+	if not _config.climate_warp_enabled:
+		return Vector2(world_x, world_z)
+	var strength := _config.climate_warp_strength
+	return Vector2(
+		world_x + _warp_noise_x.get_noise_2d(world_x, world_z) * strength,
+		world_z + _warp_noise_z.get_noise_2d(world_x, world_z) * strength)
+
+
+## Find the best-scoring biome index using weighted scoring.
+##
+## Kept for callers that only have a climate triple; prefer _find_biome_at(),
+## which also interleaves the ecotone.
 func _find_biome(temperature: float, moisture: float, height_normalized: float) -> int:
-	var best_idx := 0
+	var best_idx := -1
 	var best_score := 0.0
 	for i in _biomes.size():
+		if not _biomes[i].surface_biome:
+			continue
 		var s: float = _biomes[i].score(temperature, moisture, height_normalized)
 		if s > best_score:
 			best_score = s
+			best_idx = i
+	if best_idx >= 0:
+		return best_idx
+	return _nearest_biome(temperature, moisture, height_normalized)
+
+
+## Best biome at a world position, with an interleaved ecotone at the borders.
+##
+## Two biomes whose scores are within ecotone_blend of each other are both
+## plausible there, so which one wins is decided by a stable hash of the
+## position. The border stops being a line and becomes a belt where the two
+## interlock — the way a treeline actually meets a meadow.
+func _find_biome_at(temperature: float, moisture: float, height_normalized: float,
+		world_x: float, world_z: float) -> int:
+	var best_idx := -1
+	var best_score := 0.0
+	var runner_idx := -1
+	var runner_score := 0.0
+	for i in _biomes.size():
+		if not _biomes[i].surface_biome:
+			continue
+		var s: float = _biomes[i].score(temperature, moisture, height_normalized)
+		if s > best_score:
+			runner_idx = best_idx
+			runner_score = best_score
+			best_score = s
+			best_idx = i
+		elif s > runner_score:
+			runner_score = s
+			runner_idx = i
+
+	if best_idx < 0:
+		return _nearest_biome(temperature, moisture, height_normalized)
+	if runner_idx < 0 or _config.ecotone_blend <= 0.0 or best_score <= 0.0:
+		return best_idx
+
+	# How deep into the transition belt this point sits, 0 at the middle of a
+	# biome and 1 where the two are tied.
+	var closeness := runner_score / best_score
+	var belt := 1.0 - clampf((1.0 - closeness) / _config.ecotone_blend, 0.0, 1.0)
+	if belt <= 0.0:
+		return best_idx
+	var scale := maxf(_config.ecotone_scale, 0.001)
+	var mix_noise := (_temp_noise.get_noise_2d(world_x / scale * 37.0,
+		world_z / scale * 37.0) + 1.0) * 0.5
+	return runner_idx if mix_noise < belt * 0.5 else best_idx
+
+
+## Nearest biome by soft affinity, for climates no biome's tolerance covers.
+func _nearest_biome(temperature: float, moisture: float, height_normalized: float) -> int:
+	var best_idx := 0
+	var best := -1.0
+	for i in _biomes.size():
+		if not _biomes[i].surface_biome:
+			continue
+		var a: float = _biomes[i].affinity(temperature, moisture, height_normalized)
+		if a > best:
+			best = a
 			best_idx = i
 	return best_idx
 
@@ -194,7 +296,8 @@ func get_biome_count() -> int:
 ## Returns moisture value (0.0–1.0) at a world XZ position.
 ## Used by WeatherSystem for local weather modulation.
 func get_moisture_at_world(world_x: float, world_z: float) -> float:
-	var moisture_noise := (_moisture_noise.get_noise_2d(world_x, world_z) + 1.0) * 0.5
+	var climate := _warp_climate_position(world_x, world_z)
+	var moisture_noise := (_moisture_noise.get_noise_2d(climate.x, climate.y) + 1.0) * 0.5
 	return _get_moisture_at_world(world_x, world_z, moisture_noise, 0.0)
 
 
@@ -202,9 +305,13 @@ func get_moisture_at_world(world_x: float, world_z: float) -> float:
 ## Uses vertex_y for height normalization instead of per-chunk heightmap.
 func get_biome_at_world(world_x: float, world_z: float, vertex_y: float,
 		sea_level: float, height_scale: float) -> int:
-	var temperature_noise := (_temp_noise.get_noise_2d(world_x, world_z) + 1.0) * 0.5
-	var moisture_noise := (_moisture_noise.get_noise_2d(world_x, world_z) + 1.0) * 0.5
+	# Same warped sample position and same ecotone rule as the chunk biome
+	# map. Terrain colouring reads this one, so any divergence shows up as
+	# vertex colours that disagree with the flora standing on them.
+	var climate := _warp_climate_position(world_x, world_z)
+	var temperature_noise := (_temp_noise.get_noise_2d(climate.x, climate.y) + 1.0) * 0.5
+	var moisture_noise := (_moisture_noise.get_noise_2d(climate.x, climate.y) + 1.0) * 0.5
 	var height_normalized := clampf((vertex_y - sea_level) / height_scale, 0.0, 1.0)
 	var temperature := _get_temperature_at_world(world_x, world_z, temperature_noise)
 	var moisture := _get_moisture_at_world(world_x, world_z, moisture_noise, height_normalized)
-	return _find_biome(temperature, moisture, height_normalized)
+	return _find_biome_at(temperature, moisture, height_normalized, world_x, world_z)

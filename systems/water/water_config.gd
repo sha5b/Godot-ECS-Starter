@@ -52,8 +52,10 @@ extends Node
 ## Enable simple vertex wave animation via shader
 @export var waves_enabled: bool = true
 
-## Wave amplitude in world units
-@export var wave_amplitude: float = 0.15
+## Swell amplitude in world units (crest to still-water, so wave height is
+## roughly twice this). 0.15 m on a 110 m swell is invisible; open water wants
+## something you can read against the horizon.
+@export var wave_amplitude: float = 0.85
 
 ## Wave frequency
 @export var wave_frequency: float = 1.5
@@ -72,6 +74,21 @@ extends Node
 
 ## Strength of the shoreline break ripple pattern
 @export_range(0.0, 2.0) var shore_break_strength: float = 0.55
+
+@export_group("Sea State")
+## Wind strength that counts as a full gale — the sea state the shader gets is
+## SharedWorld.wind_strength over this value.
+@export_range(1.0, 40.0) var sea_state_full_wind: float = 9.0
+
+## How fast the sea builds under a rising wind (per second).
+@export_range(0.01, 2.0) var sea_build_rate: float = 0.12
+
+## How fast the sea lays down when the wind drops. Slower than building — a
+## swell outlives the wind that raised it.
+@export_range(0.01, 2.0) var sea_calm_rate: float = 0.05
+
+## How fast the wave bearing swings round to a new wind direction.
+@export_range(0.01, 2.0) var sea_turn_rate: float = 0.08
 
 @export_group("Far Ocean")
 ## Endless ocean ring past the loaded chunk frontier — the world ends in
