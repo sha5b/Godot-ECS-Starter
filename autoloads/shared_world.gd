@@ -60,6 +60,10 @@ var active_biome_name: StringName = &"plains"
 ## Sea level Y coordinate (written by TerrainSystem at init)
 var sea_level: float = 0.0
 
+## How far the camera is under the surface, 0 (dry) to 1 (fully submerged).
+## Written by UnderwaterSystem.
+var camera_submersion: float = 0.0
+
 ## Height scale for terrain (written by TerrainSystem at init)
 var height_scale: float = 20.0
 

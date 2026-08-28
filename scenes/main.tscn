@@ -17,6 +17,7 @@
 [ext_resource type="PackedScene" path="res://systems/weather/weather_volume_system.tscn" id="17_weather_volume"]
 [ext_resource type="PackedScene" path="res://systems/foliage/foliage_system.tscn" id="18_foliage"]
 [ext_resource type="PackedScene" path="res://systems/ecs/ecs_system.tscn" id="19_ecs"]
+[ext_resource type="PackedScene" path="res://systems/underwater/underwater_system.tscn" id="24_underwater"]
 [ext_resource type="Script" path="res://scenes/rts_camera.gd" id="20_cam"]
 [ext_resource type="Script" path="res://scenes/observer_hud.gd" id="22_observer"]
 [ext_resource type="Script" path="res://scenes/body_lab_portal.gd" id="23_lab"]
@@ -82,6 +83,8 @@ transform = Transform3D(0.99961203, 0.027851852, 0, -0.027851852, 0.99961203, 0,
 [node name="FaunaSystem" parent="." unique_id=117331885 instance=ExtResource("11_fauna")]
 
 [node name="EcsSystem" parent="." unique_id=1899447002 instance=ExtResource("19_ecs")]
+
+[node name="UnderwaterSystem" parent="." instance=ExtResource("24_underwater")]
 
 [node name="RtsCamera" type="Camera3D" parent="." unique_id=1820477511]
 script = ExtResource("20_cam")

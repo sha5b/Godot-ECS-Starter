@@ -1,0 +1,12 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://systems/underwater/underwater_system.gd" id="1_underwater_system"]
+[ext_resource type="Script" path="res://systems/underwater/underwater_config.gd" id="2_underwater_config"]
+
+[node name="UnderwaterSystem" type="Node"]
+script = ExtResource("1_underwater_system")
+system_name = &"UnderwaterSystem"
+priority = 40
+
+[node name="UnderwaterConfig" type="Node" parent="."]
+script = ExtResource("2_underwater_config")

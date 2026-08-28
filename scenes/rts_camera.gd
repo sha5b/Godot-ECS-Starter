@@ -4,7 +4,7 @@ extends Camera3D
 ##
 ## Controls (every axis has an invert toggle in the Inspector):
 ## - WASD / arrows: pan
-## - Mouse wheel: UP pulls the camera out, DOWN moves it in
+## - Mouse wheel: UP moves the camera in, DOWN pulls it out
 ## - Hold RIGHT mouse + move: orbit (left/right) and tilt (down = top-down)
 ## - Hold LEFT or MIDDLE mouse + move: drag-pan (ground follows cursor)
 ## - Q / E: orbit without the mouse
@@ -31,7 +31,7 @@ extends Camera3D
 ## Every axis below is individually invertible. The defaults flip all four
 ## relative to the original mapping — notably the wheel, which used to
 ## push the camera AWAY on scroll-up.
-## Wheel up zooms in when false.
+## Wheel up zooms in when false, out when true.
 @export var invert_zoom := false
 ## W drives the view forward when false.
 @export var invert_pan_vertical := false
@@ -77,10 +77,13 @@ func _ready() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:
+		# Positive accumulator lengthens the boom, so wheel up has to push it
+		# negative to move the camera in.
+		var zoom_dir := 1.0 if invert_zoom else -1.0
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_zoom_accumulator += 1.0
+			_zoom_accumulator += zoom_dir
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_zoom_accumulator -= 1.0
+			_zoom_accumulator -= zoom_dir
 	elif event is InputEventMouseMotion:
 		if event.button_mask & MOUSE_BUTTON_MASK_RIGHT:
 			# Hold-and-drag rotate — the standard RTS camera grip.
