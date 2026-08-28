@@ -19,6 +19,11 @@ extends Node
 ## Distance from camera beyond which wind sway animation is skipped (world units)
 @export var sway_cull_distance: float = 80.0
 
+## Width of a flora batching region, in chunks. Flora of one type inside one
+## region shares a MultiMesh. Larger regions mean fewer draw calls but coarser
+## culling, so distant flora the camera cannot see still gets submitted.
+@export_range(1, 16) var region_chunks: int = 4
+
 @export_group("Lifecycle")
 ## Master toggle for flora lifecycle simulation (growth, aging, death)
 @export var lifecycle_enabled: bool = true

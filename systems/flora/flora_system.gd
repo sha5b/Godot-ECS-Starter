@@ -5,10 +5,15 @@ extends BaseSystem
 ## Flora types are auto-discovered as FloraEntry children — drop scenes in!
 ##
 ## Plants are not scene instances. Each FloraEntry is flattened once into a list
-## of mesh parts, and every part gets one world-wide MultiMesh. A plant is a
-## CPU-side record that owns the same instance slot in each of its entry's part
-## batches. The whole world of flora therefore costs about one draw call per
-## part per flora type — a few dozen — instead of one per part per plant.
+## of mesh parts, and those parts are drawn through MultiMeshes shared by every
+## plant of that type inside a region — a square block of chunks. A plant is a
+## CPU-side record that owns the same instance slot in each of its region's part
+## batches.
+##
+## Batching per region rather than per plant collapses thousands of draw calls
+## into a couple of hundred. Batching per region rather than world-wide keeps
+## each MultiMesh inside a tight bounding box, so frustum culling and the view
+## distance still throw away flora the camera cannot see.
 
 const SHADER_GROUND_COVER_ENTRIES := {
 	&"grass": true,
@@ -22,6 +27,13 @@ const HIDDEN_TRANSFORM := Transform3D(Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, 
 ## Instance slots are allocated in blocks of at least this many.
 const MIN_BATCH_CAPACITY := 128
 
+## Half-height of a region's bounding box. Terrain never comes close, and an
+## angled RTS camera gains nothing from culling flora vertically.
+const REGION_AABB_HEIGHT := 256.0
+
+## Slack around a region box so tall plants on the border are not clipped.
+const REGION_AABB_PADDING := 8.0
+
 var _config: FloraConfig
 
 ## Auto-discovered flora types (populated from children)
@@ -33,13 +45,11 @@ var _total_weight: float = 0.0
 ## entry index → Array of part templates {mesh, material, xform, varies}
 var _entry_parts: Array = []
 
-## entry index → Array of MultiMeshInstance3D, parallel to _entry_parts
-var _entry_batches: Array = []
-
-## entry index → {capacity: int, count: int, pids: Array[int]}
-## Live instances stay packed at the front of each batch so visible_instance_count
-## draws exactly the plants that exist.
-var _entry_slots: Array = []
+## Region key → {node: Node3D, origin: Vector3, entries: Dictionary}
+## Each entries[entry_idx] is one batch: {batches: Array[MultiMeshInstance3D],
+## capacity: int, count: int, pids: Array[int]}. Live instances stay packed at
+## the front so visible_instance_count draws exactly the plants that exist.
+var _regions: Dictionary = {}
 
 ## entry index → whether this entry writes per-instance colours
 var _entry_colored: Array = []
@@ -93,7 +103,7 @@ func _initialize() -> void:
 	for entry in _flora_entries:
 		_total_weight += entry.spawn_weight
 
-	_build_batches()
+	_build_part_templates()
 
 	print("[FloraSystem] Registered %d flora types: %s" % [_flora_entries.size(), _get_entry_names()])
 
@@ -184,45 +194,88 @@ func _pick_flora_entry(rng: RandomNumberGenerator, biome_name: StringName) -> Fl
 
 # ── Batches ───────────────────────────────────────────────────────────────────
 
-## Flatten every entry into mesh parts and give each part a world-wide MultiMesh.
-func _build_batches() -> void:
-	var extent := float(GameConfig.world_size_chunks) * GameConfig.chunk_size
-	if extent <= 0.0:
-		extent = 8192.0
-	var world_aabb := AABB(
-		Vector3(-extent, -extent, -extent),
-		Vector3(extent * 2.0, extent * 2.0, extent * 2.0))
-
-	for i in _flora_entries.size():
-		var entry := _flora_entries[i]
-		var parts := _extract_parts(entry)
-		var colored := entry.hue_variation > 0.0 or entry.value_variation > 0.0
-		var batches: Array[MultiMeshInstance3D] = []
-		for part: Dictionary in parts:
-			var multimesh := MultiMesh.new()
-			multimesh.transform_format = MultiMesh.TRANSFORM_3D
-			multimesh.use_colors = colored
-			multimesh.mesh = part["mesh"]
-			multimesh.instance_count = 0
-			# A fixed AABB keeps the rendering server from rebuilding bounds on
-			# every transform write. Flora is a rounding error in vertex count,
-			# so trading its frustum culling for the draw-call collapse is cheap.
-			multimesh.custom_aabb = world_aabb
-			var instance := MultiMeshInstance3D.new()
-			instance.name = "%s_%s" % [entry.entry_name, part["name"]]
-			instance.multimesh = multimesh
-			instance.material_override = part["material"]
-			add_child(instance)
-			batches.append(instance)
-		_entry_parts.append(parts)
-		_entry_batches.append(batches)
-		_entry_colored.append(colored)
-		_entry_slots.append({"capacity": 0, "count": 0, "pids": ([] as Array[int])})
+## Flatten every entry into reusable mesh parts. The MultiMeshes themselves are
+## created per region, on demand, as chunks stream in.
+func _build_part_templates() -> void:
+	for entry in _flora_entries:
+		_entry_parts.append(_extract_parts(entry))
+		_entry_colored.append(entry.hue_variation > 0.0 or entry.value_variation > 0.0)
 		# The entry's own meshes are templates now — stop drawing them at origin.
 		_hide_template_meshes(entry)
 
 
-## Walk an entry's mesh children into flat part templates with baked transforms.
+## Chunk coord → the region block that owns it.
+func _region_of(coord: Vector2i) -> Vector2i:
+	var size := maxi(_config.region_chunks, 1)
+	return Vector2i(floori(float(coord.x) / size), floori(float(coord.y) / size))
+
+
+func _get_region(key: Vector2i) -> Dictionary:
+	if _regions.has(key):
+		return _regions[key]
+	var span := float(maxi(_config.region_chunks, 1)) * GameConfig.chunk_size
+	var node := Node3D.new()
+	node.name = "Region_%d_%d" % [key.x, key.y]
+	node.position = Vector3(key.x * span, 0.0, key.y * span)
+	add_child(node)
+	var region := {
+		"node": node,
+		"origin": node.position,
+		"span": span,
+		"entries": {},
+	}
+	_regions[key] = region
+	return region
+
+
+## Batch record for one flora type inside one region, created on first use.
+func _get_region_entry(key: Vector2i, entry_idx: int) -> Dictionary:
+	var region := _get_region(key)
+	var entries: Dictionary = region["entries"]
+	if entries.has(entry_idx):
+		return entries[entry_idx]
+
+	var entry := _flora_entries[entry_idx]
+	var span: float = region["span"]
+	# Local space, so the box starts at the region corner. The vertical span is
+	# fixed and generous: terrain never approaches it, and an RTS camera gains
+	# almost nothing from culling flora in Y.
+	var bounds := AABB(
+		Vector3(-REGION_AABB_PADDING, -REGION_AABB_HEIGHT, -REGION_AABB_PADDING),
+		Vector3(span + REGION_AABB_PADDING * 2.0, REGION_AABB_HEIGHT * 2.0,
+			span + REGION_AABB_PADDING * 2.0))
+
+	var batches: Array[MultiMeshInstance3D] = []
+	for part: Dictionary in _entry_parts[entry_idx]:
+		var multimesh := MultiMesh.new()
+		multimesh.transform_format = MultiMesh.TRANSFORM_3D
+		multimesh.use_colors = bool(_entry_colored[entry_idx])
+		multimesh.mesh = part["mesh"]
+		multimesh.instance_count = 0
+		multimesh.custom_aabb = bounds
+		var instance := MultiMeshInstance3D.new()
+		instance.name = "%s_%s" % [entry.entry_name, part["name"]]
+		instance.multimesh = multimesh
+		instance.material_override = part["material"]
+		instance.extra_cull_margin = REGION_AABB_PADDING
+		if _config.view_distance > 0.0:
+			instance.visibility_range_end = _config.view_distance
+			instance.visibility_range_end_margin = _config.view_fade
+			instance.visibility_range_fade_mode = \
+				GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+		(region["node"] as Node3D).add_child(instance)
+		batches.append(instance)
+
+	var record := {
+		"batches": batches,
+		"capacity": 0,
+		"count": 0,
+		"pids": ([] as Array[int]),
+	}
+	entries[entry_idx] = record
+	return record
+
+
 func _extract_parts(entry: FloraEntry) -> Array[Dictionary]:
 	var parts: Array[Dictionary] = []
 	_collect_parts(entry, Transform3D.IDENTITY, parts)
@@ -271,42 +324,46 @@ func _hide_template_meshes(entry: FloraEntry) -> void:
 		(child as VisualInstance3D).visible = false
 
 
-## Resizing a MultiMesh reallocates its instance buffer, so every live plant of
-## this entry is written back afterwards. Capacity doubles, so the rewrite cost
+## Resizing a MultiMesh reallocates its instance buffer, so every live plant in
+## the batch is written back afterwards. Capacity doubles, so the rewrite cost
 ## is amortised across spawns.
-func _grow_entry_capacity(entry_idx: int) -> void:
-	var slots: Dictionary = _entry_slots[entry_idx]
-	var new_capacity := maxi(MIN_BATCH_CAPACITY, int(slots["capacity"]) * 2)
-	for instance: MultiMeshInstance3D in _entry_batches[entry_idx]:
+func _grow_batch_capacity(record: Dictionary) -> void:
+	var new_capacity := maxi(MIN_BATCH_CAPACITY, int(record["capacity"]) * 2)
+	for instance: MultiMeshInstance3D in record["batches"]:
 		(instance.multimesh as MultiMesh).instance_count = new_capacity
-	slots["capacity"] = new_capacity
-	for pid: int in slots["pids"]:
+	record["capacity"] = new_capacity
+	for pid: int in record["pids"]:
 		_write_plant(pid)
 		_apply_plant_colors(pid)
 
 
-func _set_visible_count(entry_idx: int, count: int) -> void:
-	for instance: MultiMeshInstance3D in _entry_batches[entry_idx]:
+func _set_visible_count(record: Dictionary, count: int) -> void:
+	for instance: MultiMeshInstance3D in record["batches"]:
 		(instance.multimesh as MultiMesh).visible_instance_count = count
 
 
 ## Claim the next slot at the end of the packed region.
-func _alloc_slot(entry_idx: int, pid: int) -> int:
-	var slots: Dictionary = _entry_slots[entry_idx]
-	var slot: int = slots["count"]
-	if slot >= int(slots["capacity"]):
-		_grow_entry_capacity(entry_idx)
-	(slots["pids"] as Array).append(pid)
-	slots["count"] = slot + 1
-	_set_visible_count(entry_idx, slot + 1)
+func _alloc_slot(region_key: Vector2i, entry_idx: int, pid: int) -> int:
+	var record := _get_region_entry(region_key, entry_idx)
+	var slot: int = record["count"]
+	if slot >= int(record["capacity"]):
+		_grow_batch_capacity(record)
+	(record["pids"] as Array).append(pid)
+	record["count"] = slot + 1
+	_set_visible_count(record, slot + 1)
 	return slot
 
 
-## Release a slot by moving the last live plant into it, keeping the region packed.
-func _free_slot(entry_idx: int, slot: int) -> void:
-	var slots: Dictionary = _entry_slots[entry_idx]
-	var pids: Array = slots["pids"]
-	var last: int = int(slots["count"]) - 1
+## Release a slot by moving the last live plant into it, keeping the batch packed.
+func _free_slot(region_key: Vector2i, entry_idx: int, slot: int) -> void:
+	if not _regions.has(region_key):
+		return
+	var entries: Dictionary = _regions[region_key]["entries"]
+	if not entries.has(entry_idx):
+		return
+	var record: Dictionary = entries[entry_idx]
+	var pids: Array = record["pids"]
+	var last: int = int(record["count"]) - 1
 	if last < 0:
 		return
 	if slot != last:
@@ -316,26 +373,45 @@ func _free_slot(entry_idx: int, slot: int) -> void:
 		_write_plant(moved_pid)
 		_apply_plant_colors(moved_pid)
 	pids.resize(last)
-	slots["count"] = last
-	_set_visible_count(entry_idx, last)
+	record["count"] = last
+	_set_visible_count(record, last)
 
 
-func _plant_transform(plant: Dictionary) -> Transform3D:
-	var scale_factor := float(plant["scale"]) * float(plant["vis"])
+## Drop a region's nodes once the last plant in it is gone.
+func _release_region_if_empty(region_key: Vector2i) -> void:
+	if not _regions.has(region_key):
+		return
+	var region: Dictionary = _regions[region_key]
+	for record: Dictionary in (region["entries"] as Dictionary).values():
+		if int(record["count"]) > 0:
+			return
+	(region["node"] as Node3D).queue_free()
+	_regions.erase(region_key)
+
+
+## Plant transform in its region's local space — the region node carries the
+## world offset, which keeps instance origins small and the batch AABB tight.
+func _plant_transform(plant: Dictionary, region_origin: Vector3) -> Transform3D:
+	var scale_factor: float = plant["scale"]
 	if scale_factor <= 0.0:
 		return HIDDEN_TRANSFORM
 	var basis := Basis.from_euler(plant["rot"] as Vector3).scaled(
 		Vector3(scale_factor, scale_factor, scale_factor))
-	return Transform3D(basis, plant["pos"])
+	return Transform3D(basis, (plant["pos"] as Vector3) - region_origin)
 
 
 func _write_plant(pid: int) -> void:
 	var plant: Dictionary = _plants[pid]
+	var region_key: Vector2i = plant["region"]
+	if not _regions.has(region_key):
+		return
+	var region: Dictionary = _regions[region_key]
 	var entry_idx: int = plant["entry"]
+	var record: Dictionary = region["entries"][entry_idx]
 	var slot: int = plant["slot"]
-	var root_xform := _plant_transform(plant)
+	var root_xform := _plant_transform(plant, region["origin"])
 	var parts: Array = _entry_parts[entry_idx]
-	var batches: Array = _entry_batches[entry_idx]
+	var batches: Array = record["batches"]
 	for i in batches.size():
 		var multimesh: MultiMesh = (batches[i] as MultiMeshInstance3D).multimesh
 		multimesh.set_instance_transform(slot, root_xform * (parts[i]["xform"] as Transform3D))
@@ -471,9 +547,10 @@ func _spawn_flora_for_chunk(coord: Vector2i, biome_map: PackedByteArray) -> void
 func _add_plant(entry: FloraEntry, coord: Vector2i, position: Vector3, rotation_euler: Vector3,
 		plant_scale: float, rng: RandomNumberGenerator) -> int:
 	var entry_idx: int = _entry_index[entry]
+	var region_key := _region_of(coord)
 	var pid := _next_pid
 	_next_pid += 1
-	var slot := _alloc_slot(entry_idx, pid)
+	var slot := _alloc_slot(region_key, entry_idx, pid)
 
 	# Colours are rolled here so the RNG draw order matches the spawn sequence.
 	var colors := _roll_plant_colors(entry, entry_idx, rng)
@@ -482,12 +559,12 @@ func _add_plant(entry: FloraEntry, coord: Vector2i, position: Vector3, rotation_
 	_plants[pid] = {
 		"entry": entry_idx,
 		"coord": coord,
+		"region": region_key,
 		"slot": slot,
 		"pos": position,
 		"rot": rotation_euler,
 		"base_rot": rotation_euler,
 		"scale": plant_scale,
-		"vis": 1.0,
 		"sway": entry.wind_sway_strength,
 		"phase": phase,
 		"colors": colors,
@@ -526,8 +603,12 @@ func _apply_plant_colors(pid: int) -> void:
 	var colors: Array = plant["colors"]
 	if colors.is_empty():
 		return
+	var region_key: Vector2i = plant["region"]
+	if not _regions.has(region_key):
+		return
+	var record: Dictionary = _regions[region_key]["entries"][plant["entry"]]
 	var slot: int = plant["slot"]
-	var batches: Array = _entry_batches[plant["entry"]]
+	var batches: Array = record["batches"]
 	for i in colors.size():
 		((batches[i] as MultiMeshInstance3D).multimesh as MultiMesh).set_instance_color(slot, colors[i])
 
@@ -677,10 +758,11 @@ func _find_terrain_params() -> void:
 	_height_scale = SharedWorld.height_scale
 
 
-# ── Wind sway & view distance ─────────────────────────────────────────────────
+# ── Wind sway ─────────────────────────────────────────────────────────────────
 
-## One pass per frame over live plants. Near plants sway; distant plants shrink
-## out over the fade band and stop being written once they are fully gone.
+## One pass per frame over live plants. Only plants near the camera sway; the
+## rest keep the transform they were spawned with. Fading distant flora out is
+## the batch's visibility_range, not this loop's job.
 func _update_flora_motion(delta: float) -> void:
 	if _plants.is_empty():
 		return
@@ -692,53 +774,29 @@ func _update_flora_motion(delta: float) -> void:
 
 	var cam_pos := SharedWorld.camera_world_pos
 	var sway_cull_dist_sq := _config.sway_cull_distance * _config.sway_cull_distance
-	var view_end := _config.view_distance
-	var fade := maxf(_config.view_fade, 0.001)
-	var fade_start := maxf(view_end - fade, 0.0)
-	var fade_start_sq := fade_start * fade_start
-	var view_end_sq := view_end * view_end
 	var sway_amount := minf(_wind_strength * 0.08, 0.2)
 	var phase_step := delta * (0.8 + _wind_strength * 0.35)
 
 	for pid: int in _plants:
 		var plant: Dictionary = _plants[pid]
+		var strength: float = plant["sway"]
+		if strength <= 0.0:
+			continue
 		var position: Vector3 = plant["pos"]
 		var dx := position.x - cam_pos.x
 		var dz := position.z - cam_pos.z
-		var dist_sq := dx * dx + dz * dz
-		var dirty := false
+		if dx * dx + dz * dz > sway_cull_dist_sq:
+			continue
 
-		if view_end > 0.0:
-			var visibility: float = plant["vis"]
-			if dist_sq >= view_end_sq:
-				if visibility != 0.0:
-					plant["vis"] = 0.0
-					_write_plant(pid)
-				continue  # fully faded out — nothing else to update
-			elif dist_sq <= fade_start_sq:
-				if visibility != 1.0:
-					plant["vis"] = 1.0
-					dirty = true
-			else:
-				var target := clampf(1.0 - (sqrt(dist_sq) - fade_start) / fade, 0.0, 1.0)
-				if absf(target - visibility) > 0.02:
-					plant["vis"] = target
-					dirty = true
-
-		var strength: float = plant["sway"]
-		if strength > 0.0 and dist_sq <= sway_cull_dist_sq:
-			var phase: float = float(plant["phase"]) + phase_step
-			plant["phase"] = phase
-			var sway := sin(phase) * strength * sway_amount
-			var base_rotation: Vector3 = plant["base_rot"]
-			plant["rot"] = Vector3(
-				base_rotation.x + dir.z * sway,
-				base_rotation.y,
-				base_rotation.z - dir.x * sway)
-			dirty = true
-
-		if dirty:
-			_write_plant(pid)
+		var phase: float = float(plant["phase"]) + phase_step
+		plant["phase"] = phase
+		var sway := sin(phase) * strength * sway_amount
+		var base_rotation: Vector3 = plant["base_rot"]
+		plant["rot"] = Vector3(
+			base_rotation.x + dir.z * sway,
+			base_rotation.y,
+			base_rotation.z - dir.x * sway)
+		_write_plant(pid)
 
 
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
@@ -862,7 +920,8 @@ func _remove_plant(pid: int) -> void:
 	var plant: Dictionary = _plants.get(pid, {})
 	if plant.is_empty():
 		return
-	_free_slot(plant["entry"], plant["slot"])
+	var region_key: Vector2i = plant["region"]
+	_free_slot(region_key, plant["entry"], plant["slot"])
 	var coord: Vector2i = plant["coord"]
 	if _chunk_flora.has(coord):
 		var pids: Array = _chunk_flora[coord]
@@ -873,6 +932,7 @@ func _remove_plant(pid: int) -> void:
 	_flora_lifecycle.erase(pid)
 	_total_flora_count -= 1
 	SharedWorld.total_flora_count -= 1
+	_release_region_if_empty(region_key)
 
 
 func _try_spread_seed(parent_pid: int, entry: FloraEntry) -> bool:
@@ -993,16 +1053,23 @@ func _clear_chunk_flora(coord: Vector2i) -> void:
 	if not _chunk_flora.has(coord):
 		return
 	var pids: Array = _chunk_flora[coord]
+	var touched_regions := {}
 	for pid: int in pids:
 		var plant: Dictionary = _plants.get(pid, {})
 		if plant.is_empty():
 			continue
-		_free_slot(plant["entry"], plant["slot"])
+		# Read the slot fresh — freeing an earlier plant may have compacted
+		# this one into a different slot.
+		var region_key: Vector2i = plant["region"]
+		_free_slot(region_key, plant["entry"], plant["slot"])
+		touched_regions[region_key] = true
 		_plants.erase(pid)
 		_flora_lifecycle.erase(pid)
 	_total_flora_count -= pids.size()
 	SharedWorld.total_flora_count -= pids.size()
 	_chunk_flora.erase(coord)
+	for region_key: Vector2i in touched_regions:
+		_release_region_if_empty(region_key)
 	SystemBus.flora_chunk_cleared.emit(coord)
 
 
