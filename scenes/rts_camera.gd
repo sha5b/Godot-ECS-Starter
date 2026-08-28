@@ -62,7 +62,11 @@ const ACTION_DRAG_PAN := &"world_drag_pan"
 ## Vertical half of the drag-pan, invertible on its own — pushing the mouse
 ## away from you moves the view away when false.
 @export var invert_drag_vertical := true
-@export var pan_speed := 26.0
+## Metres of pan per unit of input, before the distance scaling in
+## _pan_target. Both the keyboard pan and the drag pan go through that, so this
+## is the one dial for how far a nudge moves the view. Halved from 26: at the
+## opening boom length a tap crossed most of a chunk.
+@export var pan_speed := 13.0
 @export var rotate_speed := 0.22
 @export var zoom_step := 1.18
 @export var focus_bounds := 900.0

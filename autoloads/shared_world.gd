@@ -67,6 +67,13 @@ var camera_submersion: float = 0.0
 ## Height scale for terrain (written by TerrainSystem at init)
 var height_scale: float = 20.0
 
+## Climate offsets rolled from the world seed, in the same 0..1 units the biome
+## envelopes use. Published by TerrainSystem, added by BiomeSystem — a warm wet
+## world and a cold dry one pick visibly different biomes out of the same
+## content, which is the cheapest large-scale variety a new seed can buy.
+var climate_temperature_bias: float = 0.0
+var climate_moisture_bias: float = 0.0
+
 # --- Season ---
 ## Current season name (written by WeatherSystem)
 var current_season: StringName = &"spring"

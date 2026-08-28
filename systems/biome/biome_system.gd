@@ -243,19 +243,32 @@ func _get_geo_system() -> GeoSystem:
 	return _geo_system
 
 
+## Temperature at a world position, including this world's seed-rolled bias.
+##
+## The bias is added after every other term and clamped, so it shifts which
+## biomes a seed reaches without changing how they are arranged: a warm seed
+## pushes tundra toward taiga and savanna toward desert everywhere at once.
+## Without it every seed drew from the same slice of the climate space, which
+## is a large part of why different worlds looked alike.
 func _get_temperature_at_world(world_x: float, world_z: float, noise_temperature: float) -> float:
 	var geo_system := _get_geo_system()
+	var temperature := 0.0
 	if geo_system:
-		return geo_system.blend_biome_temperature(noise_temperature, world_x, world_z)
-	return _apply_macro_temperature(world_z, noise_temperature)
+		temperature = geo_system.blend_biome_temperature(noise_temperature, world_x, world_z)
+	else:
+		temperature = _apply_macro_temperature(world_z, noise_temperature)
+	return clampf(temperature + SharedWorld.climate_temperature_bias, 0.0, 1.0)
 
 
 func _get_moisture_at_world(world_x: float, world_z: float,
 		noise_moisture: float, height_normalized: float) -> float:
 	var geo_system := _get_geo_system()
+	var moisture := 0.0
 	if geo_system:
-		return geo_system.blend_biome_moisture(noise_moisture, world_x, world_z, height_normalized)
-	return _apply_macro_moisture(height_normalized, noise_moisture)
+		moisture = geo_system.blend_biome_moisture(noise_moisture, world_x, world_z, height_normalized)
+	else:
+		moisture = _apply_macro_moisture(height_normalized, noise_moisture)
+	return clampf(moisture + SharedWorld.climate_moisture_bias, 0.0, 1.0)
 
 
 func _apply_macro_temperature(world_z: float, noise_temperature: float) -> float:

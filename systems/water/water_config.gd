@@ -32,11 +32,49 @@ extends Node
 ## Foam color at shoreline
 @export var foam_color: Color = Color(0.92, 0.95, 1.0, 0.9)
 
-## Width of shore foam band (world units)
+## Width of the shore foam band (world units) at the reference seabed slope.
+## Gentler shores widen it and steeper ones narrow it — see
+## foam_slope_reference.
 @export var foam_width: float = 0.8
 
-## Foam noise scale for patchy appearance
-@export var foam_noise_scale: float = 8.0
+## Foam noise cycles per metre, measured ACROSS the shore. Streaks are
+## stretched along it by foam_streak_stretch.
+@export var foam_noise_scale: float = 0.45
+
+@export_subgroup("Shore Flow")
+## Shore foam is advected along a flow field taken from the seabed: the depth
+## gradient gives the direction water runs up the beach, its magnitude gives
+## how far the swash spreads, and the swell bearing against it gives how
+## exposed the coast is. See systems/water/water_surface.gdshader.
+
+## How fast foam runs up the beach (metres per second).
+@export_range(0.0, 4.0) var foam_drift_speed: float = 0.9
+
+## Longshore drift (metres per second), perpendicular to the up-beach run.
+## Negative reverses which way along the coast the foam slides.
+@export_range(-3.0, 3.0) var foam_longshore_speed: float = 0.45
+
+## Seconds an advected foam layer runs before it is swapped out. Longer looks
+## smoother but stretches the pattern further before it resets.
+@export_range(0.5, 12.0) var foam_cycle: float = 3.2
+
+## How much longer foam streaks are along the shore than across it. 1 = round
+## blobs, which is what foam looks like when nothing tells it where the beach
+## is.
+@export_range(1.0, 12.0) var foam_streak_stretch: float = 3.4
+
+## Seabed slope (m/m) at which the foam band is exactly foam_width wide.
+## Wave runup goes as height over slope, so shallower shores widen the band
+## and steeper ones narrow it.
+@export_range(0.005, 1.0) var foam_slope_reference: float = 0.09
+
+## Clamps on that widening, as multiples of foam_width.
+@export_range(0.1, 2.0) var foam_band_min: float = 0.55
+@export_range(1.0, 8.0) var foam_band_max: float = 2.8
+
+## Foam left on a fully sheltered shore, as a fraction of an exposed one.
+## 1 = every coast foams the same whichever way it faces.
+@export_range(0.0, 1.0) var foam_exposure_min: float = 0.4
 
 @export_group("Caustics")
 ## Enable underwater caustics pattern on the seafloor

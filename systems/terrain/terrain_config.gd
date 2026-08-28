@@ -14,6 +14,20 @@ extends Node
 ## hard-restored border rings meet eroded interiors in visible cliff cuts.
 @export_range(2, 12) var border_blend_cells: int = 6
 
+@export_group("Seed Variation")
+## How much the seed may change the world's RECIPE, not just the arrangement of
+## its noise.
+##
+## Every noise layer was already keyed on the seed, so each start produced
+## different terrain — but land fraction, relief, mountain coverage and island
+## scale were fixed, so it was always the same kind of place. This dial lets
+## the seed roll those too: 0 reproduces the values below exactly, 1 gives the
+## full spread. See systems/terrain/world_variation.gd for the ranges.
+##
+## The values in this inspector stay the BASELINE the roll is centred on; they
+## are never overwritten on disk.
+@export_range(0.0, 1.0) var seed_variation: float = 0.85
+
 @export_group("Height")
 ## Vertical scale multiplier for terrain height
 @export var height_scale: float = 35.0
@@ -306,41 +320,65 @@ extends Node
 ## Enable river channel carving in the density field
 @export var rivers_enabled: bool = true
 
+@export_subgroup("Hydrology")
+## Rivers are derived from flow accumulation over the macro height field:
+## how much land drains through a place decides whether it has a channel and
+## how big that channel is. Width, depth, tributary merging and reaching the
+## sea all come from that one quantity — see systems/terrain/river_network.gd.
+
+## Side length of the square the drainage network is computed over, in world
+## units, centred on the origin.
+##
+## 0 means derive it from the world: world_size_chunks x chunk_size. Set it
+## explicitly only to compute hydrology over a different extent than the world
+## claims to be — outside the domain there are no rivers, because there is no
+## catchment to derive them from.
+@export var river_domain_size: float = 0.0
+
+## Cell pitch of the routing lattice. Cost is quadratic in this: halving it
+## quadruples both the height samples and the sort. 16 m resolves the valleys
+## the macro field actually has, and channel polylines are smoothed and
+## resampled before carving, so the lattice is not what you see.
+@export_range(4.0, 64.0) var river_flow_cell_size: float = 16.0
+
+## Drainage area (m²) at which a cell starts carrying a visible channel.
+## This is the single dial for "how many rivers": lower means the network
+## reaches further up into the headwaters.
+@export var river_channel_threshold_area: float = 10000.0
+
+## Half-width scales as drainage_area^this. Natural channels sit near 0.5 of
+## discharge; lower keeps a 100x catchment from making a 10x river.
+@export_range(0.1, 0.6) var river_width_exponent: float = 0.34
+
+## Hard ceiling on channel half-width (world units).
+@export var river_width_max: float = 4.5
+
+## How much wider a channel gets as it meets the sea. This is what makes a
+## mouth read as an estuary instead of a pipe that stops.
+@export_range(1.0, 4.0) var river_estuary_gain: float = 1.45
+
+## Elevation above sea level over which the estuary widening fades in.
+@export var river_estuary_height: float = 6.0
+
+## Channel slope (degrees) at or above which a reach is a cascade rather than
+## a river. Recorded per channel point.
+@export_range(10.0, 60.0) var river_cascade_slope: float = 18.0
+
+@export_subgroup("Path")
 ## Whether steep-slope river tracing can sample diagonal/extended neighbors
 @export var river_allow_diagonal_descent: bool = true
 
 ## Additional search radius for river descent on steep terrain (1 = immediate neighbors only)
 @export_range(1, 2) var river_descent_neighbor_radius: int = 2
 
-## Minimum terrain height above sea for a river source
-@export var river_source_min_height: float = 8.5
-
-## Noise threshold for source placement (higher = fewer rivers)
-@export_range(0.0, 1.0) var river_source_threshold: float = 0.58
-
-## Noise frequency for river source placement
-@export var river_source_noise_freq: float = 0.008
-
-## Maximum sources per chunk
-@export var river_max_sources: int = 2
-
-## How many chunks outward to search for upstream river sources
-@export_range(0, 8) var river_source_search_radius_chunks: int = 3
-
-## Gradient descent step size (world units)
-@export var river_step_size: float = 2.0
-
-## Maximum path steps before giving up
-@export var river_max_steps: int = 400
-
-## Path smoothing passes
+## Path smoothing passes applied to channel polylines before carving. The
+## routing lattice is coarse and its steps are 45-degree, so without this a
+## riverbed has visible corners.
 @export_range(0, 10) var river_smooth_passes: int = 3
 
-## River channel half-width at source (world units)
+## River channel half-width at exactly river_channel_threshold_area, in world
+## units. Everything wider than this comes from drainage area.
 @export var river_width_start: float = 1.5
-
-## River channel half-width at sea level (world units)
-@export var river_width_end: float = 3.6
 
 ## How deep the river channel is carved (world units)
 @export var river_carve_depth: float = 1.35

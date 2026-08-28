@@ -9,7 +9,10 @@ render_mode blend_mix, depth_draw_always, cull_back, specular_schlick_ggx;
 // ── Foam ──
 uniform vec4 foam_color : source_color = vec4(0.92, 0.95, 1.0, 0.9);
 uniform float foam_width = 0.8;
-uniform float foam_noise_scale = 8.0;
+/// Foam noise cycles per metre, ACROSS the shore. At the old value of 8 the
+/// pattern had a 12 cm period — finer than a pixel at any real camera
+/// distance, which is why it read as static grain rather than as foam.
+uniform float foam_noise_scale = 0.45;
 
 // ── Waves ──
 uniform float wave_amplitude = 0.12;
@@ -102,13 +105,145 @@ varying vec3 v_world_pos;
 
 
 
+// The depth texture has one texel per heightmap sample, and the outer samples
+// sit ON the chunk boundary. Sampling at raw UV 0..1 reads half a texel past
+// those centres and clamps, so neighbouring chunks disagree along their shared
+// edge — a grid of seams straight through the shoreline.
+float sample_terrain_depth(vec2 uv) {
+	vec2 res = vec2(textureSize(terrain_depth_tex, 0));
+	vec2 inset = (uv * (res - 1.0) + 0.5) / res;
+	return texture(terrain_depth_tex, inset).r;
+}
+
+
+// ── Shore flow ──────────────────────────────────────────────────────────────
+//
+// A flow field taken from the seabed rather than authored.
+//
+// The foam here used to be three world-axis sine waves scrolling in time.
+// Nothing in that knew where the water was: the same 12 cm lattice, at the
+// same angle, drifting the same direction, on every beach in the world. It
+// read as one texture laid over all of it because that is what it was.
+//
+// The terrain depth texture already describes the shape of every shore, and
+// its gradient is the whole flow map:
+//
+//   -grad   the direction water runs UP the beach
+//   |grad|  how steeply the seabed drops. Runup distance goes as height over
+//           slope, so this is what decides whether the swash is a wide sheet
+//           across a shelf or a narrow line against a steep shore.
+//   perp    the longshore direction, which is where the drift goes
+//
+// and the swell bearing against the shore normal says whether a coast takes
+// the surf head-on or sits sheltered behind a headland.
+
+/// Metres spanned by the terrain depth texture. One chunk; set by WaterSystem.
+uniform float depth_tex_world_size = 32.0;
+
+/// How fast foam runs up the beach, metres per second.
+uniform float foam_drift_speed : hint_range(0.0, 4.0) = 0.9;
+
+/// Longshore drift, metres per second, perpendicular to the up-beach run.
+uniform float foam_longshore_speed : hint_range(-3.0, 3.0) = 0.45;
+
+/// Seconds an advected foam layer runs before it is swapped out.
+uniform float foam_cycle : hint_range(0.5, 12.0) = 3.2;
+
+/// How much longer foam streaks are along the shore than across it.
+uniform float foam_streak_stretch : hint_range(1.0, 12.0) = 3.4;
+
+/// Seabed slope (m/m) at which the foam band is exactly foam_width wide.
+uniform float foam_slope_reference : hint_range(0.005, 1.0) = 0.09;
+uniform float foam_band_min : hint_range(0.1, 2.0) = 0.55;
+uniform float foam_band_max : hint_range(1.0, 8.0) = 2.8;
+
+/// Foam left on a fully sheltered shore, as a fraction of an exposed one.
+uniform float foam_exposure_min : hint_range(0.0, 1.0) = 0.4;
+
+struct ShoreFlow {
+	vec2 up_beach;   // unit, toward shallower water
+	vec2 along;      // unit, perpendicular — longshore
+	float slope;     // seabed slope, m/m
+	float exposure;  // 1 = takes the swell head-on, foam_exposure_min = lee
+};
+
+ShoreFlow shore_flow(vec2 uv) {
+	ShoreFlow f;
+	vec2 res = vec2(textureSize(terrain_depth_tex, 0));
+	// Two texels across, not one. A 1 m depth texture is noisy at one texel,
+	// and the wider stencil also softens the one-sided gradient that the
+	// clamp leaves along a chunk edge.
+	vec2 h = 2.0 / res;
+	float dx = sample_terrain_depth(uv + vec2(h.x, 0.0))
+		- sample_terrain_depth(uv - vec2(h.x, 0.0));
+	float dz = sample_terrain_depth(uv + vec2(0.0, h.y))
+		- sample_terrain_depth(uv - vec2(0.0, h.y));
+	// Normalized depth per UV, converted to metres of depth per metre of
+	// ground: the texture stores depth/shore_depth_range over one chunk.
+	float to_metres = shore_depth_range / max(depth_tex_world_size, 0.001);
+	vec2 grad = (vec2(dx, dz) / (2.0 * h)) * to_metres
+		/ max(depth_tex_world_size, 0.001);
+
+	f.slope = length(grad);
+	vec2 wind = normalize(wind_dir + vec2(1e-5, 0.0));
+	// Below a usable gradient — open water, or the flat depth texture the
+	// far-ocean ring gets — there is no shore to align to, so fall back to
+	// the swell bearing. No shore foam is drawn out there anyway.
+	float defined = smoothstep(0.0015, 0.02, f.slope);
+	vec2 up = f.slope > 1e-6 ? -grad / f.slope : -wind;
+	f.up_beach = normalize(mix(-wind, up, defined));
+	f.along = vec2(-f.up_beach.y, f.up_beach.x);
+	// The swell travels along wind_dir, so a shore whose up-beach direction
+	// agrees with it is the one being hit.
+	float facing = dot(f.up_beach, wind) * 0.5 + 0.5;
+	f.exposure = mix(foam_exposure_min, 1.0, clamp(facing, 0.0, 1.0));
+	return f;
+}
+
+
+// Foam texture in the shore's own frame, stretched along the coast.
+//
+// Sampling anisotropically is what makes swash read as lines parallel to the
+// beach rather than isotropic blobs that could be anywhere.
+float foam_streaks(vec2 p, ShoreFlow flow) {
+	vec2 q = vec2(dot(p, flow.along) / max(foam_streak_stretch, 1.0),
+		dot(p, flow.up_beach)) * foam_noise_scale;
+	float n = noised(q).x * 0.5 + 0.5;
+	n = mix(n, noised(q * 2.6 + vec2(17.3, 4.1)).x * 0.5 + 0.5, 0.42);
+	return n;
+}
+
+
+// The same texture advected along the flow.
+//
+// Two layers half a cycle out of phase, each weighted to zero at the moment
+// its offset resets. A single advected layer stretches without bound because
+// the flow is not uniform; the two weights sum to exactly 1 at every phase,
+// so the swap is invisible.
+float foam_texture(vec2 world_xz, ShoreFlow flow, float t) {
+	vec2 drift = flow.up_beach * foam_drift_speed
+		+ flow.along * foam_longshore_speed;
+	float cycle = max(foam_cycle, 0.1);
+	float phase = t / cycle;
+	float u0 = fract(phase);
+	float u1 = fract(phase + 0.5);
+	float w0 = 1.0 - abs(2.0 * u0 - 1.0);
+	float a = foam_streaks(world_xz - drift * (u0 * cycle), flow);
+	float b = foam_streaks(world_xz - drift * (u1 * cycle), flow);
+	return a * w0 + b * (1.0 - w0);
+}
+
+
 // Incoming surf at a point. Returns vec2(surface displacement, foam 0..1).
-vec2 shore_break(float depth_m, vec2 world_xz, float t) {
+vec2 shore_break(float depth_m, vec2 world_xz, float t, float exposure) {
 	float d = max(depth_m, 0.04);
 
 	// Green's law: energy is conserved as the wave slows, so it grows.
 	float shoal = clamp(pow(shore_reference_depth / d, 0.25), 1.0, shore_shoal_max);
-	float amp = wave_amplitude * shore_break_strength * shoal;
+	// A coast facing into the swell takes the full wave; one behind a headland
+	// gets what wrapped around it. Without this every shore in the world broke
+	// at the same height whichever way it pointed.
+	float amp = wave_amplitude * shore_break_strength * shoal * exposure;
 
 	// Depth is the phase variable, so crests follow the depth contours and
 	// arrive parallel to the shore whatever shape it is. The noise term makes
@@ -148,16 +283,6 @@ float caustic_pattern(vec2 uv, float t) {
 }
 
 // ── Vertex: broad swell + shore break ──
-// The depth texture has one texel per heightmap sample, and the outer samples
-// sit ON the chunk boundary. Sampling at raw UV 0..1 reads half a texel past
-// those centres and clamps, so neighbouring chunks disagree along their shared
-// edge — a grid of seams straight through the shoreline.
-float sample_terrain_depth(vec2 uv) {
-	vec2 res = vec2(textureSize(terrain_depth_tex, 0));
-	vec2 inset = (uv * (res - 1.0) + 0.5) / res;
-	return texture(terrain_depth_tex, inset).r;
-}
-
 void vertex() {
 	v_terrain_depth = sample_terrain_depth(UV);
 	vec3 world_pos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
@@ -171,7 +296,8 @@ void vertex() {
 	vec3 swell = water_displacement(world_pos.xz, time * wave_speed,
 		swell_wavelength, wave_amplitude);
 	float depth_m = v_terrain_depth * shore_depth_range;
-	vec2 surf = shore_break(depth_m, world_pos.xz, time);
+	ShoreFlow flow = shore_flow(UV);
+	vec2 surf = shore_break(depth_m, world_pos.xz, time, flow.exposure);
 
 	VERTEX.y += (swell.y * depth_factor + surf.x * (1.0 - depth_factor))
 		* displacement_scale;
@@ -207,24 +333,36 @@ void fragment() {
 	vec4 water_col = depth_zone_color(depth_blend);
 	float fresnel = pow(1.0 - clamp(dot(normalize(VIEW), normalize(wn)), 0.0, 1.0), 3.0);
 
-	// Shore foam — animated, patchy, with noise breakup.
-	// Driven by the per-pixel screen-space depth, not by the one-texel-per-
-	// metre terrain depth texture, so the foam band follows the real waterline
-	// instead of the heightmap grid.
-	float foam_factor = 1.0 - clamp(depth_diff / foam_width, 0.0, 1.0);
-	foam_factor = max(foam_factor, (1.0 - smoothstep(0.0, foam_width * 1.8, depth_diff)) * 0.9);
+	// Shore foam. Driven by the per-pixel screen-space depth, not by the
+	// one-texel-per-metre terrain depth texture, so the band follows the real
+	// waterline instead of the heightmap grid.
+	ShoreFlow flow = shore_flow(UV);
 
-	// Multi-frequency foam noise for organic look
-	float fn1 = sin(v_world_pos.x * foam_noise_scale + time * 2.0) * 0.5 + 0.5;
-	float fn2 = sin(v_world_pos.z * foam_noise_scale * 0.75 + time * 1.5) * 0.5 + 0.5;
-	float fn3 = sin((v_world_pos.x + v_world_pos.z) * foam_noise_scale * 0.5 - time * 1.8) * 0.5 + 0.5;
-	float foam_noise = fn1 * fn2 * 0.7 + fn3 * 0.3;
-	foam_factor *= step(0.25, foam_noise + foam_factor * 0.4);
+	// Band width from the seabed slope. Wave runup is height over slope, so a
+	// gentle shelf carries the swash far inland and a steep shore holds it in
+	// a narrow line. A single foam_width for every coast is what made every
+	// beach in the world wear the same collar.
+	float band_scale = clamp(foam_slope_reference / max(flow.slope, 0.001),
+		foam_band_min, foam_band_max);
+	float band = max(foam_width * band_scale, 0.05);
+	float foam_factor = 1.0 - clamp(depth_diff / band, 0.0, 1.0);
+	foam_factor = max(foam_factor, (1.0 - smoothstep(0.0, band * 1.8, depth_diff)) * 0.9);
+
+	// Break the band up with the shore-aligned texture, advected up the beach
+	// and along it. Softened rather than thresholded: the hard step this
+	// replaces is what made the old foam read as tiles.
+	float foam_tex = foam_texture(v_world_pos.xz, flow, time);
+	foam_factor *= smoothstep(0.16, 0.62, foam_tex + foam_factor * 0.45);
+	foam_factor *= flow.exposure;
 
 	// Surf foam from the same break model the vertex pass displaces with, so
 	// the whitewater sits on the waves that produced it.
-	vec2 surf = shore_break(v_terrain_depth * shore_depth_range, v_world_pos.xz, time);
-	foam_factor = max(foam_factor, surf.y * (1.0 - depth_factor));
+	vec2 surf = shore_break(v_terrain_depth * shore_depth_range, v_world_pos.xz,
+		time, flow.exposure);
+	// The broken crest's whitewater is carried by the same flow, so it drifts
+	// with the swash instead of sitting still on top of it.
+	float surf_foam = surf.y * mix(0.75, 1.15, foam_tex);
+	foam_factor = max(foam_factor, surf_foam * (1.0 - depth_factor));
 
 	// Whitecaps. Real seas only break above roughly force 4, so coverage is
 	// driven by the weather rather than being present at every wind speed.

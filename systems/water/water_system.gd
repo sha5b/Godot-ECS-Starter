@@ -77,6 +77,17 @@ func _setup_material() -> void:
 	_water_material.set_shader_parameter("foam_color", _config.foam_color)
 	_water_material.set_shader_parameter("foam_width", _config.foam_width)
 	_water_material.set_shader_parameter("foam_noise_scale", _config.foam_noise_scale)
+	_water_material.set_shader_parameter("foam_drift_speed", _config.foam_drift_speed)
+	_water_material.set_shader_parameter("foam_longshore_speed", _config.foam_longshore_speed)
+	_water_material.set_shader_parameter("foam_cycle", _config.foam_cycle)
+	_water_material.set_shader_parameter("foam_streak_stretch", _config.foam_streak_stretch)
+	_water_material.set_shader_parameter("foam_slope_reference", _config.foam_slope_reference)
+	_water_material.set_shader_parameter("foam_band_min", _config.foam_band_min)
+	_water_material.set_shader_parameter("foam_band_max", _config.foam_band_max)
+	_water_material.set_shader_parameter("foam_exposure_min", _config.foam_exposure_min)
+	# The shore flow field is the depth texture's gradient, so the shader has
+	# to know how much ground that texture covers to read a slope off it.
+	_water_material.set_shader_parameter("depth_tex_world_size", GameConfig.chunk_size)
 	_water_material.set_shader_parameter("caustics_enabled", _config.caustics_enabled)
 	_water_material.set_shader_parameter("caustics_strength", _config.caustics_strength)
 	_water_material.set_shader_parameter("caustics_speed", _config.caustics_speed)

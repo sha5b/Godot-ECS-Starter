@@ -27,6 +27,10 @@ Godot ECS Starter is a Godot-native, inspector-first ECS-style starter kit built
   - What was measured, what was fixed, and what is still open
   - Read this before extending the actor, terrain, water, or biome layers
 
+- **[Handoff](HANDOFF.md)**
+  - Current state, the open work in priority order, and how to measure
+  - Start here when picking the project back up
+
 ## Documentation Map
 
 ### Core concepts

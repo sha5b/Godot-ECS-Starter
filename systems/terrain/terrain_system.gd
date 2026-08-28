@@ -29,7 +29,10 @@ var _cave_noise_a: FastNoiseLite
 var _cave_noise_b: FastNoiseLite
 var _cave_cheese_noise: FastNoiseLite
 var _entrance_noise: FastNoiseLite
-var _river_source_noise: FastNoiseLite
+## The world's drainage network, built lazily by get_river_network().
+## Rivers are derived from flow accumulation over the macro height field, so
+## there is nothing per-chunk to seed and no source noise to place.
+var _river_network: RiverNetwork = null
 var _traversal_noise: FastNoiseLite
 
 var _config: TerrainConfig
@@ -57,6 +60,9 @@ func _initialize() -> void:
 		push_warning("[TerrainSystem] No TerrainConfig child found — using defaults")
 		_config = TerrainConfig.new()
 
+	# Before the noise: the roll changes the frequencies the noise is built
+	# with, so it has to land first.
+	_apply_seed_variation()
 	_setup_noise()
 	_continent_sea_threshold = _solve_continent_sea_threshold()
 	_setup_material()
@@ -65,6 +71,44 @@ func _initialize() -> void:
 	# Publish terrain params to SharedWorld so other systems don't scan the tree
 	SharedWorld.sea_level = _config.sea_level
 	SharedWorld.height_scale = _config.height_scale
+	SharedWorld.climate_temperature_bias = _variation.temperature_bias
+	SharedWorld.climate_moisture_bias = _variation.moisture_bias
+
+
+## This world's recipe, rolled from the seed. See WorldVariation.
+var _variation: WorldVariation = null
+
+
+## Roll the world's recipe from the seed and bake it into the config the rest
+## of generation reads.
+##
+## The seed already varied every noise layer, so each start genuinely produced
+## different terrain — but always the same KIND of terrain, because land
+## fraction, relief, mountain coverage and island scale were fixed constants.
+## Rolling those too is what makes a fresh start feel fresh rather than look
+## like another view of the same archipelago.
+##
+## Written into _config rather than shadowed value by value: height_scale alone
+## is read in ten places here and republished through SharedWorld to the biome,
+## flora, fauna and foliage systems, so one write is the only version that
+## cannot go out of step. The config node is a scene child, so nothing persists
+## to disk — the inspector keeps holding the authored baseline that the roll is
+## centred on. The early return is what stops the multipliers compounding if
+## initialization ever runs twice.
+func _apply_seed_variation() -> void:
+	if _variation != null:
+		return
+	_variation = WorldVariation.roll(GameConfig.world_seed,
+		_config.seed_variation, _config.continent_land_fraction,
+		_config.orogeny_coverage)
+	_config.continent_land_fraction = _variation.land_fraction
+	_config.continent_frequency *= _variation.continent_frequency_scale
+	_config.height_scale *= _variation.height_scale_multiplier
+	_config.ridged_weight *= _variation.ridged_weight_multiplier
+	_config.orogeny_coverage = _variation.orogeny_coverage
+	_config.orogeny_frequency *= _variation.orogeny_frequency_scale
+	print("[TerrainSystem] Seed %d: %s" % [GameConfig.world_seed, _variation.summary])
+	print("[TerrainSystem]   %s" % _variation.describe_values())
 
 
 func _register_signals() -> void:
@@ -190,11 +234,6 @@ func _setup_noise() -> void:
 	_entrance_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
 	_entrance_noise.seed = GameConfig.world_seed + 1200
 	_entrance_noise.frequency = _config.cave_entrance_noise_freq
-
-	_river_source_noise = FastNoiseLite.new()
-	_river_source_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-	_river_source_noise.seed = GameConfig.world_seed + 2000
-	_river_source_noise.frequency = _config.river_source_noise_freq
 
 	_traversal_noise = FastNoiseLite.new()
 	_traversal_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
@@ -1140,94 +1179,18 @@ func _trace_rivers_on_heightmap(coord: Vector2i, heightmap: PackedFloat32Array) 
 	var origin_z := float(coord.y) * cs
 	var step := cs / float(res - 1)
 	var sea := _config.sea_level
-	var min_h := sea + _config.river_source_min_height
-	var threshold := _config.river_source_threshold
-	var max_sources := _config.river_max_sources
-	var search_radius := _config.river_source_search_radius_chunks
-	var sample_step := maxi(int(res / 8.0), 1)
-	var sources: Array = []
-	var geo_system = _get_geo_system()
+	var network := get_river_network()
 
-	for chunk_dz in range(-search_radius, search_radius + 1):
-		for chunk_dx in range(-search_radius, search_radius + 1):
-			var sample_origin_x := float(coord.x + chunk_dx) * cs
-			var sample_origin_z := float(coord.y + chunk_dz) * cs
-			for gz in range(0, res, sample_step):
-				for gx in range(0, res, sample_step):
-					var wx := sample_origin_x + float(gx) * step
-					var wz := sample_origin_z + float(gz) * step
-					var h := _sample_height_hybrid(wx, wz, heightmap, res, origin_x, origin_z, step, cs, origin_x + cs, origin_z + cs)
-					if h < min_h:
-						continue
-					var slope_degrees := _sample_world_slope_degrees(wx, wz, step)
-					var local_noise := (_river_source_noise.get_noise_2d(wx, wz) + 1.0) * 0.5
-					var source_score := local_noise
-					if geo_system:
-						source_score = geo_system.get_river_source_score(
-							wx,
-							wz,
-							h,
-							sea,
-							slope_degrees,
-							local_noise
-						)
-					var cliff_source_t := clampf((slope_degrees - 24.0) / 24.0, 0.0, 1.0)
-					source_score *= lerpf(1.0, 0.18, cliff_source_t)
-					if source_score > threshold:
-						sources.append({
-							"world_x": wx,
-							"world_z": wz,
-							"height": h,
-							"slope_degrees": slope_degrees,
-							"source_score": source_score,
-							"dist2": chunk_dx * chunk_dx + chunk_dz * chunk_dz,
-						})
-
-	sources.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		if not is_equal_approx(float(a.get("source_score", 0.0)), float(b.get("source_score", 0.0))):
-			return float(a.get("source_score", 0.0)) > float(b.get("source_score", 0.0))
-		if not is_equal_approx(float(a["height"]), float(b["height"])):
-			return float(a["height"]) > float(b["height"])
-		return int(a["dist2"]) < int(b["dist2"])
-	)
-
-	var filtered_sources: Array = []
-	var min_source_dist := maxf(cs * 0.85, _config.river_width_end * 14.0)
-	var min_source_dist_sq := min_source_dist * min_source_dist
-	var candidate_limit := maxi(max_sources * 6, 6)
-	for source in sources:
-		var keep := true
-		for chosen in filtered_sources:
-			var dx := float(source.get("world_x", 0.0)) - float(chosen.get("world_x", 0.0))
-			var dz := float(source.get("world_z", 0.0)) - float(chosen.get("world_z", 0.0))
-			if dx * dx + dz * dz < min_source_dist_sq:
-				keep = false
-				break
-		if not keep:
-			continue
-		filtered_sources.append(source)
-		if filtered_sources.size() >= candidate_limit:
-			break
-	sources = filtered_sources
-
-	var river_cell_map: Dictionary = {}
 	var render_paths_for_chunk: Array = []
-	var accepted_sources := 0
-	for source in sources:
-		var start := Vector3(float(source["world_x"]), float(source["height"]), float(source["world_z"]))
-		var path := _trace_single_river(start, heightmap, res, origin_x, origin_z, step, sea)
-		if path.size() < 2:
+	var river_cell_map: Dictionary = {}
+	for line in network.channels_for_chunk(Vector2(origin_x, origin_z), cs, network.cell_size):
+		var render_path := _build_channel_render_path(line, heightmap, res,
+			origin_x, origin_z, step, cs, sea)
+		if render_path.size() < 2:
 			continue
-		var end_pt: Vector3 = path[path.size() - 1]
-		if end_pt.y > sea + step:
-			continue
-		var render_path := _build_local_render_path(path, origin_x, origin_z, cs, step, sea)
-		if render_path.size() >= 2:
-			render_paths_for_chunk.append(render_path)
-		_accumulate_river_cells(path, river_cell_map, heightmap, res, origin_x, origin_z, step, sea)
-		accepted_sources += 1
-		if accepted_sources >= max_sources:
-			break
+		render_paths_for_chunk.append(render_path)
+		_accumulate_river_cells(render_path, river_cell_map, heightmap, res,
+			origin_x, origin_z, step, sea)
 
 	_finalize_river_cells(river_cell_map)
 	var river_cells := river_cell_map.values()
@@ -1236,13 +1199,83 @@ func _trace_rivers_on_heightmap(coord: Vector2i, heightmap: PackedFloat32Array) 
 	return river_cells
 
 
+## The world's drainage network, built on first use.
+##
+## PUBLIC RIVER QUERY API. Downstream systems and QA harnesses ask this where
+## the world's rivers are; see sample_surface_height() for the same contract on
+## terrain height.
+##
+## One build covers the whole world, so the cost lands on the first caller and
+## never again. The old code searched a 7x7 chunk neighbourhood for noise
+## sources on every single chunk, and each chunk then traced its own paths —
+## which is why rivers disagreed across seams.
+func get_river_network() -> RiverNetwork:
+	if _river_network != null:
+		return _river_network
+	var network := RiverNetwork.new()
+	network.channel_threshold = _config.river_channel_threshold_area
+	network.width_at_threshold = _config.river_width_start
+	network.width_exponent = _config.river_width_exponent
+	network.width_max = _config.river_width_max
+	network.estuary_gain = _config.river_estuary_gain
+	network.estuary_height = _config.river_estuary_height
+	network.cascade_slope = _config.river_cascade_slope
+	network.depth_at_threshold = _config.river_carve_depth
+	network.smooth_passes = _config.river_smooth_passes
+	# 0 means "the world": whatever GameConfig says its extent is. Hard-coding
+	# a size here is how it drifts out of step with the world it describes.
+	var domain := _config.river_domain_size
+	if domain <= 0.0:
+		domain = float(GameConfig.world_size_chunks) * GameConfig.chunk_size
+	var half := domain * 0.5
+	var t0 := Time.get_ticks_msec()
+	network.build(_sample_world_height, Vector2(-half, -half),
+		domain, _config.river_flow_cell_size, _config.sea_level)
+	network.index_chunks(GameConfig.chunk_size, network.cell_size * 2.0)
+	_river_network = network
+	print("[TerrainSystem] Drainage network over %.0f m: %d channels, %d channel cells, largest catchment %.2f km2, %d ms"
+		% [domain, network.stats["channels"], network.stats["channel_cells"],
+			float(network.stats["max_area"]) / 1e6, Time.get_ticks_msec() - t0])
+	return _river_network
+
+
+## Put one channel of the global network onto this chunk's own heightmap.
+##
+## The network already carries smooth, densified geometry with a half-width and
+## a depth per point — those come from drainage area and are the same numbers
+## on both sides of every seam. What is chunk-local is only the height: the
+## bed has to sit on the heightmap this chunk is about to carve.
+##
+## Heights are forced monotonically downhill. A smoothed path cuts corners,
+## and a corner it cuts can be higher ground than the cell it came from, so
+## without this a river reads as flowing uphill for a metre or two.
+func _build_channel_render_path(line: Array, heightmap: PackedFloat32Array,
+		res: int, origin_x: float, origin_z: float, step: float, cs: float,
+		sea: float) -> Array:
+	var chunk_end_x := origin_x + cs
+	var chunk_end_z := origin_z + cs
+	var out: Array = []
+	var last_y := INF
+	for source_point in line:
+		var point: Dictionary = source_point.duplicate()
+		var wx := float(point["world_x"])
+		var wz := float(point["world_z"])
+		var y := _sample_height_hybrid(wx, wz, heightmap, res, origin_x,
+			origin_z, step, cs, chunk_end_x, chunk_end_z)
+		y = minf(y, last_y)
+		last_y = y
+		point["surface_y"] = y
+		point["water_level"] = maxf(y + 0.06, sea)
+		out.append(point)
+	return out
+
+
 func _apply_riverbed_erosion_to_heightmap(heightmap: PackedFloat32Array,
 		river_cells: Array, render_paths: Array, res: int,
 		origin_x: float, origin_z: float, step: float, sea: float) -> void:
 	if render_paths.is_empty() or heightmap.is_empty():
 		return
 	var width_start := _config.river_width_start
-	var width_end := _config.river_width_end
 	var carve_depth := maxf(_config.river_carve_depth, step * 0.75)
 	var bank_width_multiplier := maxf(_config.river_bank_width_multiplier, 1.0)
 	var valley_width_multiplier := minf(maxf(_config.river_valley_width_multiplier, bank_width_multiplier), 2.2)
@@ -1291,11 +1324,11 @@ func _apply_riverbed_erosion_to_heightmap(heightmap: PackedFloat32Array,
 						continue
 					var idx := gz * res + gx
 					var surface_h := heightmap[idx]
-					var river_t := lerpf(float(a.get("river_t", 0.0)), float(b.get("river_t", 0.0)), seg_t)
-					var width_t := clampf((maxf(half_w_a, half_w_b) - width_start) / maxf(width_end - width_start, 0.001), 0.0, 1.0)
 					var slope_degrees := _surface_slope_degrees(heightmap, res, gx, gz, step)
 					var cliff_t := clampf((slope_degrees - (_config.river_cliff_protection_slope - 8.0)) / maxf(85.0 - (_config.river_cliff_protection_slope - 8.0), 0.001), 0.0, 1.0)
-					var bed_depth := carve_depth * lerpf(0.65, 1.12, maxf(river_t, width_t))
+					# Bed depth is the network's, per point, from drainage area.
+					var bed_depth := maxf(lerpf(float(a.get("depth", carve_depth)),
+						float(b.get("depth", carve_depth)), seg_t), carve_depth * 0.5)
 					bed_depth *= lerpf(1.0, 0.34, cliff_t)
 					var target_h := surface_h
 					if dist_xz <= core_half_width:
@@ -1329,95 +1362,6 @@ func _apply_riverbed_erosion_to_heightmap(heightmap: PackedFloat32Array,
 			if wx < origin_x or wx > chunk_end_x or wz < origin_z or wz > chunk_end_z:
 				continue
 			point["surface_y"] = _sample_heightmap_bilinear(heightmap, res, wx - origin_x, wz - origin_z, step)
-
-
-func _trace_single_river(start: Vector3, heightmap: PackedFloat32Array,
-		res: int, origin_x: float, origin_z: float, step: float,
-		sea: float) -> Array[Vector3]:
-	var snapped_start := _snap_to_grid(start, origin_x, origin_z, step, res)
-	snapped_start.y = _sample_height_hybrid(snapped_start.x, snapped_start.z,
-		heightmap, res, origin_x, origin_z, step,
-		GameConfig.chunk_size, origin_x + GameConfig.chunk_size, origin_z + GameConfig.chunk_size)
-	var path: Array[Vector3] = [snapped_start]
-	var pos := snapped_start
-	var max_steps := _config.river_max_steps
-	var cs: float = GameConfig.chunk_size
-	var chunk_end_x := origin_x + cs
-	var chunk_end_z := origin_z + cs
-	var visited := {
-		_river_visit_key(pos.x, pos.z, step): true,
-	}
-
-	for _i in max_steps:
-		if pos.y <= sea + step:
-			break
-		var next := _find_lowest_river_neighbor(pos, heightmap, res, origin_x, origin_z, step, cs, chunk_end_x, chunk_end_z)
-		if next.is_empty():
-			break
-		var next_pos: Vector3 = next["pos"]
-		next_pos = _snap_to_grid(next_pos, origin_x, origin_z, step, res)
-		next_pos.y = _sample_height_hybrid(next_pos.x, next_pos.z,
-			heightmap, res, origin_x, origin_z, step, cs, chunk_end_x, chunk_end_z)
-		if next_pos.y > pos.y + 0.05:
-			break
-		var visit_key := _river_visit_key(next_pos.x, next_pos.z, step)
-		if visited.has(visit_key):
-			break
-		visited[visit_key] = true
-		pos = next_pos
-		path.append(pos)
-
-	return path
-
-
-func _build_local_render_path(path: Array[Vector3], origin_x: float, origin_z: float,
-		cs: float, step: float, sea: float) -> Array:
-	var total_drop := maxf(path[0].y - sea, 1.0)
-	var local_points: Array = []
-	var seen := {}
-	var width_start := _config.river_width_start
-	var width_end := _config.river_width_end
-	for i in range(path.size()):
-		var pt: Vector3 = path[i]
-		if pt.x < origin_x - step or pt.x > origin_x + cs + step:
-			continue
-		if pt.z < origin_z - step or pt.z > origin_z + cs + step:
-			continue
-		var key := _river_visit_key(pt.x, pt.z, step)
-		if seen.has(key):
-			continue
-		seen[key] = true
-		var river_t := clampf((path[0].y - pt.y) / total_drop, 0.0, 1.0)
-		var flow := Vector2.ZERO
-		if i < path.size() - 1:
-			flow = Vector2(path[i + 1].x - pt.x, path[i + 1].z - pt.z)
-		elif i > 0:
-			flow = Vector2(pt.x - path[i - 1].x, pt.z - path[i - 1].z)
-		if flow.length_squared() > 0.0001:
-			flow = flow.normalized()
-		else:
-			flow = Vector2(0.0, 1.0)
-		var half_width := lerpf(width_start, width_end, river_t)
-		local_points.append({
-			"world_x": pt.x,
-			"world_z": pt.z,
-			"surface_y": pt.y,
-			"river_t": river_t,
-			"half_width": half_width,
-			"flow_dir_x": flow.x,
-			"flow_dir_z": flow.y,
-		})
-	return local_points
-
-
-func _snap_to_grid(pos: Vector3, origin_x: float, origin_z: float,
-		step: float, res: int) -> Vector3:
-	var _origin_x := origin_x
-	var _origin_z := origin_z
-	var _res := res
-	var gx := roundi(pos.x / step)
-	var gz := roundi(pos.z / step)
-	return Vector3(float(gx) * step, pos.y, float(gz) * step)
 
 
 func _sample_height_hybrid(wx: float, wz: float, heightmap: PackedFloat32Array,
@@ -1465,78 +1409,40 @@ func _sample_world_slope_degrees(wx: float, wz: float, step: float) -> float:
 	return rad_to_deg(atan(sqrt(dx * dx + dz * dz)))
 
 
-func _find_lowest_river_neighbor(pos: Vector3, heightmap: PackedFloat32Array,
-		res: int, origin_x: float, origin_z: float, step: float,
-		cs: float, chunk_end_x: float, chunk_end_z: float) -> Dictionary:
-	var _res := res
-	var cur_gx := roundi(pos.x / step)
-	var cur_gz := roundi(pos.z / step)
-	var best_pos := Vector3.ZERO
-	var best_h := INF
-	var neighbor_radius := maxi(_config.river_descent_neighbor_radius, 1)
-	for dz in range(-neighbor_radius, neighbor_radius + 1):
-		for dx in range(-neighbor_radius, neighbor_radius + 1):
-			if dx == 0 and dz == 0:
-				continue
-			if not _config.river_allow_diagonal_descent and abs(dx) + abs(dz) > 1:
-				continue
-			var ngx: int = cur_gx + dx
-			var ngz: int = cur_gz + dz
-			var wx: float = float(ngx) * step
-			var wz: float = float(ngz) * step
-			var h := _sample_height_hybrid(wx, wz, heightmap, res, origin_x, origin_z, step, cs, chunk_end_x, chunk_end_z)
-			var dist := Vector2(float(dx), float(dz)).length()
-			var effective_h := h + dist * 0.01
-			if effective_h < best_h:
-				best_h = effective_h
-				best_pos = Vector3(wx, h, wz)
-	if best_h == INF:
-		return {}
-	if best_h < pos.y - 0.05:
-		return {"pos": best_pos}
-	if best_h <= pos.y + 0.02:
-		return {"pos": best_pos}
-	return {}
-
-
-func _accumulate_river_cells(path: Array[Vector3], river_cell_map: Dictionary,
+## Turn a channel polyline into flooded river cells on the chunk grid.
+##
+## Every seed carries the half-width, depth and drainage area the network
+## derived for that point, so the flood spreads as far as the river is wide
+## rather than as far as a fixed radius reaches. Where two channels cross the
+## same cell the larger river wins, which is what makes a confluence read as
+## one wide channel instead of two narrow ones overlapping.
+func _accumulate_river_cells(path: Array, river_cell_map: Dictionary,
 		heightmap: PackedFloat32Array, res: int,
 		origin_x: float, origin_z: float, step: float, sea: float) -> void:
 	var cs: float = GameConfig.chunk_size
-	var total_drop := maxf(path[0].y - sea, 1.0)
 	var water_offset := 0.4
-	var width_start := _config.river_width_start
-	var width_end := _config.river_width_end
 	var flood_seeds: Array[Dictionary] = []
 
-	for i in range(path.size()):
-		var pt: Vector3 = path[i]
-		if pt.x < origin_x or pt.x >= origin_x + cs:
+	for point: Dictionary in path:
+		var px := float(point["world_x"])
+		var pz := float(point["world_z"])
+		if px < origin_x or px >= origin_x + cs:
 			continue
-		if pt.z < origin_z or pt.z >= origin_z + cs:
+		if pz < origin_z or pz >= origin_z + cs:
 			continue
-		var gx := clampi(roundi((pt.x - origin_x) / step), 0, res - 1)
-		var gz := clampi(roundi((pt.z - origin_z) / step), 0, res - 1)
-		var river_t := clampf((path[0].y - pt.y) / total_drop, 0.0, 1.0)
-		var half_w := lerpf(width_start, width_end, river_t)
+		var gx := clampi(roundi((px - origin_x) / step), 0, res - 1)
+		var gz := clampi(roundi((pz - origin_z) / step), 0, res - 1)
+		var half_w := maxf(float(point["half_width"]), step)
 		var radius_cells := maxi(ceili(half_w / step), 1)
 		var surface_y := heightmap[gz * res + gx]
 		var water_y := maxf(surface_y + water_offset, sea)
-
-		var flow_dx := 0.0
-		var flow_dz := 1.0
-		if i < path.size() - 1:
-			var next_pt: Vector3 = path[i + 1]
-			var dir := Vector2(next_pt.x - pt.x, next_pt.z - pt.z)
-			if dir.length_squared() > 0.0001:
-				dir = dir.normalized()
-				flow_dx = dir.x
-				flow_dz = dir.y
-
 		flood_seeds.append({
 			"gx": gx, "gz": gz, "water_y": water_y,
-			"river_t": river_t, "radius": radius_cells,
-			"flow_dx": flow_dx, "flow_dz": flow_dz,
+			"river_t": float(point["river_t"]), "radius": radius_cells,
+			"flow_dx": float(point["flow_dir_x"]), "flow_dz": float(point["flow_dir_z"]),
+			"drainage_area": float(point["drainage_area"]),
+			"half_width": half_w, "depth": float(point["depth"]),
+			"cascade": bool(point.get("cascade", false)),
 		})
 
 	_flood_fill_river(flood_seeds, river_cell_map, heightmap, res,
@@ -1570,6 +1476,7 @@ func _flood_fill_river(seeds: Array[Dictionary], river_cell_map: Dictionary,
 		var flow_dx: float = float(current["flow_dx"])
 		var flow_dz: float = float(current["flow_dz"])
 		var radius: int = int(current["radius"])
+		var area: float = float(current["drainage_area"])
 
 		if gx < 0 or gx >= res or gz < 0 or gz >= res:
 			continue
@@ -1585,12 +1492,25 @@ func _flood_fill_river(seeds: Array[Dictionary], river_cell_map: Dictionary,
 			"world_z": origin_z + float(gz) * step,
 			"surface_y": surface_y,
 			"water_level": water_y,
-			"flow": 0.0,
+			"drainage_area": 0.0,
+			"channel_half_width": 0.0,
+			"channel_depth": 0.0,
+			"cascade": false,
 			"river_t": river_t,
 			"flow_dir_x": flow_dx,
 			"flow_dir_z": flow_dz,
 		})
-		cell["flow"] = float(cell["flow"]) + 1.0
+		# At a confluence the bigger river decides what the cell looks like.
+		# Averaging, or letting whichever channel was flooded last win, is
+		# what used to make a trunk narrow again below its own tributary.
+		if area > float(cell["drainage_area"]):
+			cell["drainage_area"] = area
+			cell["channel_half_width"] = float(current["half_width"])
+			cell["channel_depth"] = float(current["depth"])
+			cell["cascade"] = bool(current["cascade"])
+			cell["river_t"] = river_t
+			cell["flow_dir_x"] = flow_dx
+			cell["flow_dir_z"] = flow_dz
 		if float(cell.get("water_level", 0.0)) < water_y:
 			cell["water_level"] = water_y
 		river_cell_map[idx] = cell
@@ -1617,25 +1537,26 @@ func _flood_fill_river(seeds: Array[Dictionary], river_cell_map: Dictionary,
 				"gx": ngx, "gz": ngz, "water_y": water_y,
 				"river_t": river_t, "radius": radius - 1,
 				"flow_dx": flow_dx, "flow_dz": flow_dz,
+				"drainage_area": area, "half_width": float(current["half_width"]),
+				"depth": float(current["depth"]), "cascade": bool(current["cascade"]),
 			})
 
 
+## Fill in the derived per-cell fields the mesh builders and the water renderer
+## read.
+##
+## `flow` used to be how many times the flood fill touched a cell, and width
+## was interpolated from it against the busiest cell IN THAT CHUNK — so the
+## same river was a different width depending on which chunk you looked at it
+## from. All of it now comes from drainage area, which is a world-level fact.
 func _finalize_river_cells(river_cell_map: Dictionary) -> void:
-	var max_flow_accum := 1.0
-	for idx in river_cell_map.keys():
-		var pre_cell: Dictionary = river_cell_map[idx]
-		max_flow_accum = maxf(max_flow_accum, float(pre_cell.get("flow", 1.0)))
 	for idx in river_cell_map.keys():
 		var cell: Dictionary = river_cell_map[idx]
-		var flow_accum := float(cell.get("flow", 1.0))
 		var river_t := float(cell.get("river_t", 0.0))
-		var flow_t := clampf((flow_accum - 1.0) / maxf(max_flow_accum - 1.0, 1.0), 0.0, 1.0)
-		var width_t := clampf(maxf(river_t, pow(flow_t, 0.82)), 0.0, 1.0)
-		cell["flow_accum"] = flow_accum
-		cell["river_order"] = int(roundi(width_t * 4.0))
-		cell["channel_half_width"] = lerpf(_config.river_width_start, _config.river_width_end * 1.08, width_t)
-		cell["channel_depth"] = _config.river_carve_depth * lerpf(0.60, 1.05, width_t)
-		cell["channel_fill_ratio"] = lerpf(0.54, 0.74, width_t)
+		cell["flow_accum"] = float(cell.get("drainage_area", 0.0))
+		cell["flow"] = float(cell.get("drainage_area", 0.0)) / 1000.0
+		cell["river_order"] = int(roundi(river_t * 4.0))
+		cell["channel_fill_ratio"] = lerpf(0.54, 0.74, river_t)
 		river_cell_map[idx] = cell
 
 
@@ -1674,7 +1595,6 @@ func _carve_river_channels(grid: PackedFloat32Array, heightmap: PackedFloat32Arr
 		min_y: float, _sea: float) -> void:
 	var carve_depth := _config.river_carve_depth
 	var width_start := _config.river_width_start
-	var width_end := _config.river_width_end
 	var falloff_exp := _config.river_carve_falloff
 	var channel_core_ratio := clampf(_config.river_channel_core_ratio, 0.1, 0.9)
 	var bank_width_multiplier := maxf(_config.river_bank_width_multiplier, 1.0)
@@ -1753,7 +1673,6 @@ func _carve_river_channels(grid: PackedFloat32Array, heightmap: PackedFloat32Arr
 						0.0,
 						1.0
 					)
-					var width_t := clampf((half_w - width_start) / maxf(width_end - width_start, 0.001), 0.0, 1.0)
 					var core_half_width := maxf(half_w * channel_core_ratio, step_xz * 0.45)
 					var bank_half_width := maxf(
 						half_w * lerpf(bank_width_multiplier, maxf(bank_width_multiplier * 0.82, 1.0), cliff_t) + step_xz * 0.45,
@@ -1765,7 +1684,13 @@ func _carve_river_channels(grid: PackedFloat32Array, heightmap: PackedFloat32Arr
 					)
 					if dist_xz > valley_half_width:
 						continue
-					var depth := carve_depth * (0.55 + 0.45 * maxf(width_t, river_t))
+					# Depth comes from drainage area (RiverNetwork.depth_for),
+					# interpolated along the segment. It used to be derived
+					# from how wide the channel was against the widest the
+					# config allowed, which made depth a second reading of
+					# width rather than its own hydraulic quantity.
+					var depth := lerpf(float(a.get("depth", carve_depth)),
+						float(b.get("depth", carve_depth)), seg_t)
 					depth *= 1.24
 					depth *= lerpf(1.0, _config.river_cliff_depth_scale, cliff_t)
 					var inner_span := maxf(bank_half_width - core_half_width, 0.001)

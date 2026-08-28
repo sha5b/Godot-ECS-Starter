@@ -59,8 +59,12 @@ func _ready() -> void:
 	Engine.time_scale = game_speed
 	if randomize_seed_on_play:
 		world_seed = int(Time.get_unix_time_from_system()) ^ int(Time.get_ticks_usec() & 0x7fffffff)
-	if debug_log_signals:
-		print("[GameConfig] Seed: %d | Chunks: %d | ChunkSize: %.1f" % [world_seed, world_size_chunks, chunk_size])
+	# Always, not behind the debug flag. The seed is the only handle on which
+	# world you are looking at: without it printed there is no way to tell a
+	# fresh world from the same one again, and no way to go back to one you
+	# liked. Set randomize_seed_on_play off and paste it in to reproduce.
+	print("[GameConfig] Seed: %d | Chunks: %d | ChunkSize: %.1f"
+		% [world_seed, world_size_chunks, chunk_size])
 
 
 ## Deterministic hash for a chunk coordinate — always returns same value for same input
