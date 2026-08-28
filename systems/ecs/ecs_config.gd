@@ -49,6 +49,14 @@ extends Node
 ## Grass only spawns on land at least this far above sea level.
 @export var populate_min_height_above_sea := 0.5
 
+## Spawn ECS animals from the FaunaEntry content scenes under FaunaSystem,
+## gated by biome, instead of one anonymous critter type everywhere.
+##
+## This is what connects authored species (body plan, diet, prey, biome rules)
+## to the simulation that breeds and evolves them. Turn it off to go back to
+## generic lucky-dip critters.
+@export var use_fauna_species := true
+
 @export_group("Procedural Critters")
 ## Give ECS critters a CGenome: bodies are built procedurally from genome
 ## data (see docs/PROCEDURAL_CRITTER_BODIES.md) instead of the simple
@@ -68,6 +76,10 @@ extends Node
 
 ## Population cap for genome-backed critters.
 @export var breed_max_population := 24
+
+## Genetic distance beyond which two members of one species can no longer
+## interbreed, when the species record does not override it.
+@export_range(0.05, 1.0) var breed_interbreed_distance := 0.5
 
 ## Mutation strength handed to the genome on birth (1 = default drift).
 @export var critter_mutation_rate := 1.0

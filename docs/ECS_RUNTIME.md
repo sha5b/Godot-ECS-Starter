@@ -50,6 +50,9 @@ sparse-set stores keyed by `COMPONENT_ID`:
 - `CAgent` — drives, committed action, cooldowns, sensor blackboard
 - `CFood` — marks an entity as edible
 - `CLifetime` — auto-despawn timer
+- `CSpecies` — which species an actor belongs to, its generation, and how far
+  it has drifted from the species body plan
+- `CGenome` — the procedural body plan and the stats derived from it
 
 ### Queries
 `world.query([&"CTransform", &"CElemental"])` returns a live cache that
@@ -105,6 +108,68 @@ product; a new winner must beat the committed action by `switch_margin`
 `panic / flee / seek_food / rest / wander`. Ignite grass near critters and
 panic wins every score — the emergent "grass fire chases animals" moment.
 
+## Species and evolution
+
+Animals are not anonymous. Every `FaunaEntry` content scene under
+`FaunaSystem` registers as a **founding species** in `SpeciesRegistry`, and
+the ECS spawns members of those species, biome-gated by the entry's own
+`allowed_biomes` / `excluded_biomes`.
+
+```text
+FaunaEntry (content scene)        what a deer IS
+  ├─ genome_archetype             body plan: grazer / runner / pouncer /
+  │                               serpent / glider
+  ├─ genome_variance              how much individuals differ at spawn
+  ├─ speciation_distance          how far a lineage drifts before it splits
+  └─ diet / prey_names            what it eats and what eats it
+        │
+        ▼
+SpeciesRegistry                   what happens to it afterwards
+  ├─ SpeciesRecord (founder genome, diet, prey, mutation rate)
+  └─ speciate()                   mints new lineages as the world runs
+        │
+        ▼
+CSpecies on every animal          species_id, generation, drift
+```
+
+### How a species stays a species
+
+`SpeciesRecord.founder` is a genome derived deterministically from the species
+name, so every deer in every world is built on the same body plan. Individuals
+are that founder plus their own `genome_variance` mutation — deer look like
+deer, and no two are identical.
+
+### How new species appear
+
+`BreedingSystem` pairs two adults of the same species within `partner_radius`,
+crosses their genomes, mutates the child, and derives its speed and health from
+the resulting body. A child splits off as a **new species** only when both:
+
+1. its genome is past `speciation_distance` from the species founder, and
+2. **both parents had already drifted most of the way there**
+
+Condition 2 is what makes this speciation rather than mutant detection. Without
+it, one lucky mutation founds a species: measured at 1056 splits from 1558
+births, with no lineage ever reaching generation 1. With it, a run of 2124
+births produced 92 splits, the first at generation 15, and lineages reached
+generation 40.
+
+New species keep the root entry they descend from, so a deer lineage that has
+split three ways is still hunted by everything that hunts deer — prey lists are
+authored per `FaunaEntry` and would otherwise go stale the moment either side
+speciated.
+
+Events: `critter_bred` and `species_split`, both bridged to
+`SystemBus.ecs_event`.
+
+> **Historical note.** Species identity used to come from
+> `CritterGenome.species_name()`, which derives from the genome's random seed
+> stamp — and `crossover()` gives every child a fresh stamp. Every animal was
+> therefore its own species, the same-species gate in `BreedingSystem` could
+> never pass, and nothing in the world had ever bred. A probe over twelve
+> spawned critters found twelve distinct species names. `tests/unit/test_species.gd`
+> locks the fix down.
+
 ## Tiered processing (BotW A/B/C profiles)
 
 | Tier | Cadence | Typical range |
@@ -147,7 +212,8 @@ ticks itself when not under a `World` root.
 ## Testing
 
 - Unit tests: `godot --headless --path . --script tests/run_tests.gd`
-  (45 tests over world, queries, commands, chemistry, AI, scheduler)
+  (93 tests over world, queries, commands, chemistry, AI, scheduler, species
+  identity, heredity and speciation)
 - Visual integration test: open
   `res://tests/visual/ecs_visual_test.tscn` and press play, or run it
   headless — it drives a scripted scenario (fire spread → panic → rain →

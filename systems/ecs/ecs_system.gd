@@ -34,14 +34,23 @@ var vitality := VitalitySystem.new()
 var view_sync := ViewSyncSystem.new()
 var breeding := BreedingSystem.new()
 
+## The world's species — founding types from FaunaEntry content, plus every
+## lineage that has split off since. Read by HUDs and content systems.
+var species := SpeciesRegistry.new()
+
 var _config: EcsConfig
 var _stat_timer := 0
 
 ## World population bookkeeping: chunk coord -> spawned entity ids.
 var _chunk_entities: Dictionary = {}
 var _populate_rng := RandomNumberGenerator.new()
+var _species_registered := false
+var _spawnable_entries: Array[FaunaEntry] = []
 const TERRAIN_SYSTEM_SCRIPT = preload("res://systems/terrain/terrain_system.gd")
+const FAUNA_SYSTEM_SCRIPT = preload("res://systems/fauna/fauna_system.gd")
+const BIOME_SYSTEM_SCRIPT = preload("res://systems/biome/biome_system.gd")
 var _terrain_system: TerrainSystem = null
+var _biome_system: BiomeSystem = null
 
 
 func _initialize() -> void:
@@ -84,6 +93,8 @@ func _initialize() -> void:
 		breeding.max_population = _config.breed_max_population
 		breeding.mutation_rate = _config.critter_mutation_rate
 		breeding.seed_value = GameConfig.world_seed ^ 0xb2eed
+		breeding.registry = species
+		breeding.interbreed_distance = _config.breed_interbreed_distance
 		scheduler.register(&"breeding", breeding.tick, EcsScheduler.Phase.SIM, 55)
 	# Right after movement: velocity integration is planar, so actors need
 	# re-seating on the surface before anything reads their position.
@@ -119,6 +130,7 @@ func system_process(delta: float) -> void:
 		world.refresh_stats()
 		var stats := world.stats.duplicate(true)
 		stats["system_times_us"] = scheduler.system_times.duplicate()
+		stats["species"] = species.stats()
 		SharedWorld.ecs_stats = stats
 
 
@@ -201,11 +213,55 @@ func _spawn_chemistry_grass(chunk_data: ChunkData, origin: Vector3,
 		entities.append(entity)
 
 
+## Register every authored fauna type as a founding species.
+##
+## FaunaSystem owns the content; the registry owns what happens to it after
+## the world starts running. Called once, lazily, because FaunaSystem may not
+## have discovered its children yet when EcsSystem initializes.
+func _ensure_species_registered() -> void:
+	if _species_registered:
+		return
+	var fauna := _find_system_by_type(FAUNA_SYSTEM_SCRIPT) as FaunaSystem
+	if fauna == null:
+		return
+	var entries := fauna.get_entries()
+	if entries.is_empty():
+		return
+	for entry in entries:
+		if entry.genetics_enabled:
+			species.register_founder(entry, GameConfig.world_seed)
+			_spawnable_entries.append(entry)
+	_species_registered = true
+	if not _spawnable_entries.is_empty():
+		print("[EcsSystem] Registered %d founding species: %s"
+			% [species.count(), str(species.ids())])
+
+
+## Pick a fauna type that belongs in this biome, weighted by spawn weight.
+func _pick_species_entry(biome_name: StringName) -> FaunaEntry:
+	var total := 0.0
+	for entry in _spawnable_entries:
+		if entry.is_allowed_in_biome(biome_name):
+			total += entry.spawn_weight
+	if total <= 0.0:
+		return null
+	var roll := _populate_rng.randf() * total
+	var acc := 0.0
+	for entry in _spawnable_entries:
+		if not entry.is_allowed_in_biome(biome_name):
+			continue
+		acc += entry.spawn_weight
+		if roll <= acc:
+			return entry
+	return null
+
+
 func _spawn_critters(chunk_data: ChunkData, origin: Vector3,
 		cs: float, entities: Array[int]) -> void:
 	var count := _config.critters_per_chunk
 	if count <= 0:
 		return
+	_ensure_species_registered()
 	var min_height := SharedWorld.sea_level + _config.populate_min_height_above_sea
 	var coord := SharedWorld.world_to_chunk(origin + Vector3(cs * 0.5, 0, cs * 0.5))
 	for i in count:
@@ -213,9 +269,20 @@ func _spawn_critters(chunk_data: ChunkData, origin: Vector3,
 		var height := _sample_terrain_height(coord, local.x, local.y)
 		if height < min_height:
 			continue
+		var spawn_pos := origin + Vector3(local.x, height, local.y)
+
+		# Which species belongs here. Biome-gated, from authored content —
+		# the ECS layer used to spawn one anonymous critter type everywhere,
+		# with no idea that biomes or species existed.
+		var entry: FaunaEntry = null
+		if _config.use_fauna_species:
+			entry = _pick_species_entry(_biome_name_at(spawn_pos))
+			if entry == null and not _spawnable_entries.is_empty():
+				continue
+
 		var entity := world.spawn()
 		var transform := CTransform.new()
-		transform.position = origin + Vector3(local.x, height, local.y)
+		transform.position = spawn_pos
 		world.add_component(entity, transform)
 		world.add_component(entity, CVelocity.new())
 		var body := CBody.new()
@@ -225,9 +292,23 @@ func _spawn_critters(chunk_data: ChunkData, origin: Vector3,
 		world.add_component(entity, CElemental.new())
 		var health := CHealth.new()
 		var genome_comp: CGenome = null
-		if _config.procedural_critters:
+		if entry != null:
+			# An individual of a species: the species founder body plan with
+			# this animal's own variation on it.
+			genome_comp = _individual_genome(entry)
+			var species_component := CSpecies.of(entry.entry_name, 0)
+			# Record how far this individual sits from the species founder.
+			# Speciation asks the parents for this, so a spawned population
+			# that starts spread out can diverge, and one that starts uniform
+			# has to drift first.
+			var record := species.get_record(entry.entry_name)
+			if record != null and record.founder != null:
+				species_component.drift = genome_comp.genome.distance_to(record.founder)
+			world.add_component(entity, species_component)
+		elif _config.procedural_critters:
 			# Genome-backed body: morphology drives stats, selection can act.
 			genome_comp = CGenome.random(_populate_rng)
+		if genome_comp != null:
 			health.max_hp = genome_comp.derived_health_max
 			health.hp = genome_comp.derived_health_max
 		else:
@@ -251,6 +332,31 @@ func _spawn_critters(chunk_data: ChunkData, origin: Vector3,
 			view_sync.bind(entity, _make_simple_view(transform.position,
 				Color(0.85, 0.7, 0.45), 0.8, &"capsule"))
 		entities.append(entity)
+
+
+## One animal of a species: the founder genome plus this individual's own
+## drift. Variance is per-species, so a tightly-bred type stays uniform and a
+## variable one produces obvious individuals from the first generation.
+func _individual_genome(entry: FaunaEntry) -> CGenome:
+	var record := species.get_record(entry.entry_name)
+	if record == null or record.founder == null:
+		return CGenome.random(_populate_rng)
+	var genome := record.founder.cloned(_populate_rng)
+	genome.generation = 0
+	if entry.genome_variance > 0.0:
+		genome.mutate(_populate_rng, entry.genome_variance)
+	return CGenome.from_genome(genome)
+
+
+## Biome name at a world position, or &"plains" with no biome system.
+func _biome_name_at(position: Vector3) -> StringName:
+	if _biome_system == null:
+		_biome_system = _find_system_by_type(BIOME_SYSTEM_SCRIPT) as BiomeSystem
+	if _biome_system == null:
+		return &"plains"
+	var index := _biome_system.get_biome_at_world(position.x, position.z,
+		position.y, SharedWorld.sea_level, SharedWorld.height_scale)
+	return _biome_system.get_biome_name(index)
 
 
 ## Edible berry bushes — the seek_food loop needs targets.

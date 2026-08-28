@@ -124,6 +124,17 @@ func _collect_fauna_children(node: Node) -> void:
 		_collect_fauna_children(child)
 
 
+## The fauna types this system discovered from its content children.
+##
+## PUBLIC CONTENT API. FaunaSystem owns the authored species definitions; the
+## ECS layer reads them to spawn genome-backed animals with the right body
+## plan, diet, prey list and biome rules. Without this the two halves each
+## invent their own idea of what a species is — which is exactly what they
+## used to do.
+func get_entries() -> Array[FaunaEntry]:
+	return _fauna_entries
+
+
 func _get_entry_names() -> String:
 	var names: PackedStringArray = []
 	for e in _fauna_entries:

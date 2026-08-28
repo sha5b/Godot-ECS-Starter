@@ -129,6 +129,37 @@ extends Node3D
 ## Maximum health
 @export var health_max: float = 1.0
 
+@export_group("Genetics")
+## Give this species procedural, heritable bodies.
+##
+## When on, animals of this type spawn with a CGenome sampled around the
+## species founder genome, breed by crossover + mutation, and can split off
+## new species as a lineage drifts. When off, the type spawns with fixed
+## stats and takes no part in evolution.
+@export var genetics_enabled: bool = true
+
+## Body plan this species is built on. Individuals vary around it; they do
+## not re-roll it, which is what makes every deer look like a deer.
+@export_enum("grazer", "runner", "pouncer", "serpent", "glider")
+var genome_archetype: String = "grazer"
+
+## How much individuals of this species differ from the species founder at
+## spawn. 0 = clones, 1 = a full mutation pass of variation.
+@export_range(0.0, 3.0) var genome_variance: float = 0.55
+
+## Mutation strength applied to this species' offspring.
+@export_range(0.0, 3.0) var genome_mutation_rate: float = 1.0
+
+## Genetic distance from the species founder at which an individual is no
+## longer the same animal, and its lineage splits off as a new species.
+## Lower = the world speciates faster.
+@export_range(0.05, 1.0) var speciation_distance: float = 0.34
+
+## Genetic distance beyond which two members of the same species can no
+## longer interbreed. This is what makes a species split gradually at its
+## edges instead of snapping in two.
+@export_range(0.05, 1.0) var interbreed_distance: float = 0.5
+
 @export_group("Breeding")
 ## Whether adults of this type can breed
 @export var can_breed: bool = false

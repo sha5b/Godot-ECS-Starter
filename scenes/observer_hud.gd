@@ -315,6 +315,18 @@ static func build_report(world: EcsWorld, entity: int) -> Dictionary:
 	var lifetime := world.get_component(entity, &"CLifetime") as CLifetime
 	if lifetime != null:
 		report["lifetime"] = lifetime.remaining
+	var species := world.get_component(entity, &"CSpecies") as CSpecies
+	if species != null:
+		report["species"] = species.species_id
+		report["species_generation"] = species.generation
+		report["species_drift"] = species.drift
+	var genome := world.get_component(entity, &"CGenome") as CGenome
+	if genome != null and genome.genome != null:
+		report["lineage"] = genome.species
+		report["genome_generation"] = genome.genome.generation
+		report["body"] = "%d segs, %d leg pairs, %s" % [
+			genome.genome.segment_count(), genome.genome.leg_pairs(),
+			genome.genome.gait_name()]
 	return report
 
 
@@ -322,7 +334,15 @@ static func build_report(world: EcsWorld, entity: int) -> Dictionary:
 static func format_report(report: Dictionary) -> String:
 	if not bool(report.get("alive", false)):
 		return "despawned"
-	var text := "tier %d — %s\n" % [int(report["tier"]), str(report["tier_note"])]
+	var text := ""
+	if report.has("species"):
+		# Species first: it is the one line that says what this animal IS.
+		text += "%s  gen %d  drift %.0f%%\n" % [
+			str(report["species"]), int(report.get("species_generation", 0)),
+			float(report.get("species_drift", 0.0)) * 100.0]
+	if report.has("body"):
+		text += "%s\n" % str(report["body"])
+	text += "tier %d — %s\n" % [int(report["tier"]), str(report["tier_note"])]
 	if report.has("position"):
 		var pos: Vector3 = report["position"]
 		text += "pos (%.1f, %.1f, %.1f)  facing %.0f°\n" % [

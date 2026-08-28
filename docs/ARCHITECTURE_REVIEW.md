@@ -12,7 +12,8 @@ this pass; items marked **OPEN** are diagnosed but not done.
 
 ## 1. The central problem: two actor runtimes
 
-**OPEN. This is the finding that matters most.**
+**STEP 1 DONE — see §1a. The rest is still OPEN, and is the finding that
+matters most.**
 
 The project contains two complete, unconnected implementations of "living
 things in the world":
@@ -62,6 +63,86 @@ spawner and view layer, in this order:
 
 Every step is independently shippable, and each one deletes more code than it
 adds. Do not start it without step 1 — `CSpecies` is what makes the rest cheap.
+
+---
+
+## 1a. Fauna genetics: the evolution engine had never run
+
+**FIXED.** Step 1 of the migration above, plus the bug it uncovered.
+
+Species identity came from `CritterGenome.species_name()`, which derives from
+the genome's random seed stamp — and `crossover()` gives every child a fresh
+stamp. So:
+
+```
+[probe] 12 random critters -> 12 distinct species
+[probe] two spawned critters same species? false
+[probe] child species == parent A?        false
+```
+
+Every animal was its own species. `BreedingSystem`'s same-species gate could
+never pass, so **nothing in the world had ever bred**. The whole evolution
+layer — crossover, mutation, derived stats, generation counters — was inert,
+and untested, so nothing said so.
+
+### What was built
+
+- **`CSpecies`** — the bridge component. Species id, generation, and how far
+  this individual has drifted from its species body plan. Deliberately tiny:
+  everything shared by a species lives once in the registry.
+- **`SpeciesRecord` / `SpeciesRegistry`** — founding species come from
+  `FaunaEntry` content scenes; the registry grows on its own after that.
+- **`FaunaEntry` genetics group** — `genome_archetype` (grazer / runner /
+  pouncer / serpent / glider), `genome_variance`, `genome_mutation_rate`,
+  `speciation_distance`, `interbreed_distance`.
+- **`CritterGenome.founder_for_species()`** — a species' body plan derived
+  deterministically from its name, so every deer is built on the same plan and
+  individuals vary *around* it. `randomized()` rolls the archetype by weight,
+  which is right for a lucky-dip critter and wrong for a species.
+- **`CritterGenome.distance_to()`** — normalized per-gene distance, each gene
+  divided by its own legal span. Without that normalization the count genes
+  (body segments spans 2–7) would drown out every proportion and angle (eye
+  size spans 0.05–0.16), and "genetic distance" would only measure how many
+  legs two animals disagree about.
+- **Biome-gated species spawning** in `EcsSystem`, reading `FaunaSystem`'s
+  authored entries through a new public `get_entries()`. The ECS used to spawn
+  one anonymous critter type everywhere, with no idea biomes or species existed.
+
+### Speciation, and the failure in the middle of it
+
+The first working version measured each child against the species founder and
+split it off if it was past the threshold. Measured: **1056 splits from 1558
+births** — 70% of children founding a species, `deepest generation reached: 0`.
+That is the original bug again with tidier names.
+
+The fix is to ask whether the *lineage* has moved, not whether one child is
+odd. A child now splits off only when it is past `speciation_distance` **and
+both parents had already drifted most of the way there** — which is how
+speciation actually works: a population diverges, a mutant does not.
+
+Measured after, same run parameters:
+
+| | before the fix | after |
+|---|---|---|
+| Births | 1558 | 2124 |
+| Splits | 1056 (68%) | 92 (4.3%) |
+| First split at generation | 2 | 15 |
+| Deepest generation reached | 0 | 40 |
+
+### Coverage
+
+`tests/unit/test_species.gd` — 17 tests over founder stability, archetype
+selection, distance normalization, registry behaviour, the lineage-commitment
+rule, prey lists surviving speciation, and breeding through the ECS. The suite
+went from 77 to 93 tests. `test_breeding_produces_offspring` asserts zero
+births against the old behaviour, so the original bug cannot come back quietly.
+
+### Still open from step 1
+
+`CSpecies` now carries diet and prey lists into the ECS, but nothing consumes
+them yet — `PredationSystem` (step 2) and `FlockingSystem` (step 3) are the
+next pieces. Until then, predator/prey and group behaviour still only exist in
+`FaunaSystem`.
 
 ---
 
@@ -521,13 +602,15 @@ ground colour disagreed with the flora standing on it.
 
 ## Verification
 
-- `godot --headless --path . --script tests/run_tests.gd` — **77 passed, 0 failed**
+- `godot --headless --path . --script tests/run_tests.gd` — **93 passed, 0 failed**
 - `godot --headless --path . res://scenes/main.tscn` — clean, no script or
   shader errors
 - `.qa/height_profile.gd` — elevation, slope, and belt-coverage statistics
 - `.qa/biome_map.gd` — renders the biome map as a PNG with per-biome shares
 - `.qa/water_fps.gd` — frame rate over open water, worst case for the shader
 - `.qa/shore_shot.gd`, `.qa/river_shot.gd` — fixed-seed visual comparison shots
+- `.qa/evolution_probe.gd` — drives breeding headless and reports births,
+  splits and lineage depth over thousands of generations
 
 The `.qa` scripts are the point, not the numbers they printed once. Every
 finding above that says "measured" was measured with one of them, and they will

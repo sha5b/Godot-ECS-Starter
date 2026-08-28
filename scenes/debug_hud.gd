@@ -71,6 +71,11 @@ func _process(_delta: float) -> void:
 	var ecs_stats: Dictionary = SharedWorld.ecs_stats
 	if not ecs_stats.is_empty():
 		var tiers: PackedInt32Array = ecs_stats.get("tier_counts", PackedInt32Array())
+		var species: Dictionary = ecs_stats.get("species", {})
+		if not species.is_empty():
+			text += "Species: %d living (%d founding, deepest split %d)\n" % [
+				species.get("species", 0), species.get("roots", 0),
+				species.get("deepest_split", 0)]
 		text += "ECS entities: %d | T0 %d / T1 %d / T2 %d / T3 %d\n" % [
 			ecs_stats.get("entities", 0), tiers[0], tiers[1], tiers[2], tiers[3],
 		]

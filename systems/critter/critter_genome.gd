@@ -241,16 +241,60 @@ static func randomized(rng: RandomNumberGenerator) -> CritterGenome:
 
 	# Roll an archetype by weight, then pull the genome toward its plan.
 	var roll := rng.randf()
-	var chosen: Dictionary = {}
+	var chosen_name := &"grazer"
 	var acc := 0.0
 	for plan_name in _archetypes():
-		var plan: Dictionary = _archetypes()[plan_name]
-		acc += float(plan["weight"])
+		acc += float(_archetypes()[plan_name]["weight"])
 		if roll <= acc:
-			chosen = plan
+			chosen_name = plan_name
 			break
-	if chosen.is_empty():
-		chosen = _archetypes()[&"grazer"]
+	_apply_archetype(genome, chosen_name, rng)
+	return genome
+
+
+## Names of the body-plan archetypes, for inspector dropdowns.
+static func archetype_names() -> PackedStringArray:
+	var out := PackedStringArray()
+	for plan_name in _archetypes():
+		out.append(str(plan_name))
+	return out
+
+
+## Sample a genome around one NAMED archetype.
+##
+## randomized() rolls the archetype by weight, which is right for a lucky-dip
+## critter and wrong for a species: a deer has to come out a grazer every
+## time, or the species has no body plan.
+static func for_archetype(archetype: StringName, rng: RandomNumberGenerator) -> CritterGenome:
+	var genome := CritterGenome.new()
+	genome.seed_value = rng.randi()
+	for gene in _ranges().keys():
+		var r: Vector2 = _ranges()[gene]
+		genome.genes[gene] = rng.randf_range(r.x, r.y)
+	_apply_archetype(genome, archetype, rng)
+	return genome
+
+
+## The founding genome of a species: deterministic from the species name, so
+## every deer in every world on every seed is built on the same body plan and
+## individuals vary AROUND it rather than replacing it.
+static func founder_for_species(species_name_hint: StringName,
+		archetype: StringName, world_seed: int = 0) -> CritterGenome:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = (hash(species_name_hint) ^ world_seed) & 0x7fffffff
+	var genome := for_archetype(archetype, rng)
+	# The founder's seed stamp is the species identity, not an individual's.
+	genome.seed_value = int(rng.seed)
+	genome.generation = 0
+	return genome
+
+
+## Pull a genome toward an archetype's plan and re-apply the coherence and
+## allometry rules. Shared by randomized() and for_archetype().
+static func _apply_archetype(genome: CritterGenome, archetype: StringName,
+		rng: RandomNumberGenerator) -> void:
+	var plans := _archetypes()
+	var chosen: Dictionary = plans.get(archetype, plans[&"grazer"])
 	var targets: Dictionary = chosen["genes"]
 	for gene in targets:
 		if gene == GENE_LEG_PAIRS or gene == GENE_HAS_WINGS:
@@ -282,7 +326,6 @@ static func randomized(rng: RandomNumberGenerator) -> CritterGenome:
 		maxf(float(genome.genes[GENE_LEG_GIRTH]), sqrt(mass) * 0.34))
 	genome.genes[GENE_FOOT_SIZE] = clamp_gene(GENE_FOOT_SIZE,
 		maxf(float(genome.genes[GENE_FOOT_SIZE]), sqrt(mass) * 0.10))
-	return genome
 
 
 ## Copy with a new seed stamp (mutations build on a copy).
@@ -434,6 +477,31 @@ func derived_flee_multiplier() -> float:
 	var burst := 1.2 + float(genes[GENE_STRIDE_AMP]) * 0.6
 	burst += float(genes[GENE_GAIT_CYCLE]) * 0.2
 	return clampf(burst, 1.1, 2.2)
+
+
+## Normalized genetic distance to another genome, 0 (identical) to 1.
+##
+## Each gene contributes its absolute difference divided by its own legal
+## range, so a gene that spans 0.05-0.16 counts as much as one that spans
+## 2-7. Without that normalization the count genes would drown out every
+## proportion and angle in the body, and "distance" would only measure how
+## many legs two animals disagree about.
+##
+## This is the measure speciation is judged on: lineages that drift past a
+## threshold from their founder stop being the same animal.
+func distance_to(other: CritterGenome) -> float:
+	if other == null:
+		return 1.0
+	var total := 0.0
+	var counted := 0
+	for gene in genes.keys():
+		if not other.genes.has(gene):
+			continue
+		var r := gene_range(gene)
+		var span := maxf(r.y - r.x, 0.0001)
+		total += absf(float(genes[gene]) - float(other.genes[gene])) / span
+		counted += 1
+	return total / float(maxi(counted, 1))
 
 
 # ── Identity & serialization ───────────────────────────────────────────────────
