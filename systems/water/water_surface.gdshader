@@ -155,7 +155,7 @@ uniform float foam_streak_stretch : hint_range(1.0, 12.0) = 3.4;
 /// Seabed slope (m/m) at which the foam band is exactly foam_width wide.
 uniform float foam_slope_reference : hint_range(0.005, 1.0) = 0.09;
 uniform float foam_band_min : hint_range(0.1, 2.0) = 0.55;
-uniform float foam_band_max : hint_range(1.0, 8.0) = 2.8;
+uniform float foam_band_max : hint_range(1.0, 8.0) = 1.8;
 
 /// Foam left on a fully sheltered shore, as a fraction of an exposed one.
 uniform float foam_exposure_min : hint_range(0.0, 1.0) = 0.4;
@@ -338,6 +338,15 @@ void fragment() {
 	// waterline instead of the heightmap grid.
 	ShoreFlow flow = shore_flow(UV);
 
+	// depth_diff is a distance along the VIEW RAY, not a water depth. The
+	// extra path a ray takes through water is depth / cos(angle to vertical),
+	// so recovering the depth means multiplying it back. Skipping that step
+	// made the band balloon at exactly the low camera angles this game is
+	// played from: a 0.8 m band became metres of white smear across the whole
+	// shallows.
+	vec3 to_camera = normalize(CAMERA_POSITION_WORLD - v_world_pos);
+	float water_depth_m = depth_diff * max(abs(to_camera.y), 0.08);
+
 	// Band width from the seabed slope. Wave runup is height over slope, so a
 	// gentle shelf carries the swash far inland and a steep shore holds it in
 	// a narrow line. A single foam_width for every coast is what made every
@@ -345,14 +354,19 @@ void fragment() {
 	float band_scale = clamp(foam_slope_reference / max(flow.slope, 0.001),
 		foam_band_min, foam_band_max);
 	float band = max(foam_width * band_scale, 0.05);
-	float foam_factor = 1.0 - clamp(depth_diff / band, 0.0, 1.0);
-	foam_factor = max(foam_factor, (1.0 - smoothstep(0.0, band * 1.8, depth_diff)) * 0.9);
 
-	// Break the band up with the shore-aligned texture, advected up the beach
-	// and along it. Softened rather than thresholded: the hard step this
-	// replaces is what made the old foam read as tiles.
+	// Across-band coordinate: 1 at the waterline, 0 at the seaward edge.
+	float across = 1.0 - clamp(water_depth_m / band, 0.0, 1.0);
+
+	// The texture GATES the band, with a threshold that rises going seaward.
+	// Near the waterline almost all of it passes; further out only the
+	// brightest streaks do. That is what makes a swash line with fingers
+	// reaching back into the water, instead of a solid collar with a soft
+	// edge — which is what adding the texture to an already-saturated band
+	// produced, since inside the band there was nothing left for it to break.
 	float foam_tex = foam_texture(v_world_pos.xz, flow, time);
-	foam_factor *= smoothstep(0.16, 0.62, foam_tex + foam_factor * 0.45);
+	float gate = mix(0.72, 0.12, across);
+	float foam_factor = smoothstep(gate, gate + 0.28, foam_tex) * across;
 	foam_factor *= flow.exposure;
 
 	// Surf foam from the same break model the vertex pass displaces with, so
@@ -391,11 +405,10 @@ void fragment() {
 	// Feather the last centimetres so the waterline blends into wet sand
 	// instead of ending on a hard cut you can see around every island.
 	//
-	// depth_diff is a VIEW-space distance: at a grazing angle a few
-	// centimetres of water stretch over metres of view depth, so the band is
-	// scaled by the viewing angle or shallow bays vanish entirely.
-	float grazing = max(abs(normalize(VIEW).z), 0.2);
-	float shoreline = smoothstep(0.0, shoreline_softness / grazing, depth_diff);
+	// Uses the same view-ray-to-depth conversion the foam band does, so the
+	// feather is a real distance in water rather than one that widens with the
+	// camera angle.
+	float shoreline = smoothstep(0.0, shoreline_softness, water_depth_m);
 	ALPHA = clamp(final_alpha + depth_blend * 0.26 + fresnel * 0.12, 0.0, 1.0)
 		* mix(1.0, shoreline, 0.8);
 	NORMAL = mix(vec3(0.0, 1.0, 0.0), wn, depth_factor);

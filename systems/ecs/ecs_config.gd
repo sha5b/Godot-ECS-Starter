@@ -74,6 +74,13 @@ extends Node
 ## Grass only spawns on land at least this far above sea level.
 @export var populate_min_height_above_sea := 0.5
 
+## How deep a walking animal will wade before it turns back, in world units.
+##
+## The utility AI writes planar movement intent and has no idea the sea exists,
+## so a herd that wanders downhill keeps going. Measured before this: deer and
+## rabbits were standing in open water off every beach.
+@export var wade_depth := 0.6
+
 ## Spawn ECS animals from the FaunaEntry content scenes under FaunaSystem,
 ## gated by biome, instead of one anonymous critter type everywhere.
 ##

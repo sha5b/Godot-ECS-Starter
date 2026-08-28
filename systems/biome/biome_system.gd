@@ -119,7 +119,7 @@ func _generate_biome_map(coord: Vector2i, heightmap: PackedFloat32Array) -> Pack
 			var moisture := _get_moisture_at_world(world_x, world_z, moisture_noise, height_normalized)
 
 			var biome_idx := _find_biome_at(temperature, moisture, height_normalized,
-				world_x, world_z)
+				world_x, world_z, maxf(sea_level - h, 0.0))
 			biome_map[z * res + x] = biome_idx
 
 	return biome_map
@@ -187,8 +187,17 @@ func _find_biome(temperature: float, moisture: float, height_normalized: float) 
 ## plausible there, so which one wins is decided by a stable hash of the
 ## position. The border stops being a line and becomes a belt where the two
 ## interlock — the way a treeline actually meets a meadow.
+## Classify one point.
+##
+## `depth_m` is metres of water above the ground, 0 on land. Above water the
+## candidates are the land biomes scored on elevation; below it they are the
+## seafloor biomes scored on depth. The two sets never compete, because the
+## axes are not the same axis: elevation above sea level is clamped at 0, so
+## with one shared axis every water biome scored identically at the water line
+## and one of them took the whole seafloor.
 func _find_biome_at(temperature: float, moisture: float, height_normalized: float,
-		world_x: float, world_z: float) -> int:
+		world_x: float, world_z: float, depth_m: float = 0.0) -> int:
+	var submerged := depth_m > 0.0
 	var best_idx := -1
 	var best_score := 0.0
 	var runner_idx := -1
@@ -196,7 +205,10 @@ func _find_biome_at(temperature: float, moisture: float, height_normalized: floa
 	for i in _biomes.size():
 		if not _biomes[i].surface_biome:
 			continue
-		var s: float = _biomes[i].score(temperature, moisture, height_normalized)
+		if _biomes[i].underwater != submerged:
+			continue
+		var s: float = _biomes[i].score_underwater(temperature, moisture, depth_m) \
+			if submerged else _biomes[i].score(temperature, moisture, height_normalized)
 		if s > best_score:
 			runner_idx = best_idx
 			runner_score = best_score
@@ -207,7 +219,7 @@ func _find_biome_at(temperature: float, moisture: float, height_normalized: floa
 			runner_idx = i
 
 	if best_idx < 0:
-		return _nearest_biome(temperature, moisture, height_normalized)
+		return _nearest_biome(temperature, moisture, height_normalized, depth_m)
 	if runner_idx < 0 or _config.ecotone_blend <= 0.0 or best_score <= 0.0:
 		return best_idx
 
@@ -224,17 +236,24 @@ func _find_biome_at(temperature: float, moisture: float, height_normalized: floa
 
 
 ## Nearest biome by soft affinity, for climates no biome's tolerance covers.
-func _nearest_biome(temperature: float, moisture: float, height_normalized: float) -> int:
-	var best_idx := 0
+## Stays on the same side of the water line as the point it is classifying.
+func _nearest_biome(temperature: float, moisture: float, height_normalized: float,
+		depth_m: float = 0.0) -> int:
+	var submerged := depth_m > 0.0
+	var best_idx := -1
 	var best := -1.0
 	for i in _biomes.size():
 		if not _biomes[i].surface_biome:
 			continue
-		var a: float = _biomes[i].affinity(temperature, moisture, height_normalized)
+		if _biomes[i].underwater != submerged:
+			continue
+		var a: float = _biomes[i].affinity_underwater(temperature, moisture, depth_m) \
+			if submerged else _biomes[i].affinity(temperature, moisture, height_normalized)
 		if a > best:
 			best = a
 			best_idx = i
-	return best_idx
+	# No biome authored for this side of the water line at all.
+	return best_idx if best_idx >= 0 else 0
 
 
 func _get_geo_system() -> GeoSystem:
@@ -327,4 +346,5 @@ func get_biome_at_world(world_x: float, world_z: float, vertex_y: float,
 	var height_normalized := clampf((vertex_y - sea_level) / height_scale, 0.0, 1.0)
 	var temperature := _get_temperature_at_world(world_x, world_z, temperature_noise)
 	var moisture := _get_moisture_at_world(world_x, world_z, moisture_noise, height_normalized)
-	return _find_biome_at(temperature, moisture, height_normalized, world_x, world_z)
+	return _find_biome_at(temperature, moisture, height_normalized, world_x, world_z,
+		maxf(sea_level - vertex_y, 0.0))

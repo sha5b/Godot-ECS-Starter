@@ -51,6 +51,24 @@ extends Node
 ## Height tolerance
 @export_range(0.0, 0.5) var height_tolerance: float = 0.3
 
+@export_group("Depth")
+## Is this a seafloor biome?
+##
+## Underwater and land biomes are scored on different axes and never compete.
+## The height axis measures elevation ABOVE sea level and is clamped at 0, so
+## it cannot tell 20 cm of water from 15 m — every water biome scored
+## identically at height 0 and whichever won the climate roll took the entire
+## seafloor. Measured before this existed: 93.9% of the seafloor came out
+## deep_ocean, coral_reef and kelp_forest were never assigned anywhere, and
+## every aquatic flora and fauna type gated to them had nothing to spawn on.
+@export var underwater: bool = false
+
+## Ideal depth below sea level, in world units. Only read when `underwater`.
+@export_range(0.0, 40.0) var ideal_depth: float = 4.0
+
+## How far from `ideal_depth` still counts as this biome, in world units.
+@export_range(0.5, 40.0) var depth_tolerance: float = 4.0
+
 @export_group("Flora")
 ## How densely flora spawns in this biome (multiplier, 0 = none)
 @export var flora_density_multiplier: float = 1.0
@@ -104,23 +122,40 @@ extends Node
 ## Height is deliberately excluded from the weighting: an altitude band is a
 ## hard physical constraint, not a claim about how picky a biome is.
 func score(temperature: float, moisture: float, height_normalized: float) -> float:
+	return _score_on(temperature, moisture, height_normalized, ideal_height,
+		height_tolerance)
+
+
+## Score a seafloor biome, on depth in metres instead of elevation.
+##
+## Depth is a real distance rather than a normalized one because the axis has
+## no natural ceiling to normalize against: the ocean floor goes as deep as the
+## terrain does, and "3 metres down" is what makes a reef a reef whatever the
+## height scale of the world happens to be.
+func score_underwater(temperature: float, moisture: float, depth_m: float) -> float:
+	return _score_on(temperature, moisture, depth_m, ideal_depth, depth_tolerance)
+
+
+func _score_on(temperature: float, moisture: float, position: float,
+		ideal_position: float, position_tolerance: float) -> float:
 	var t_dist := absf(temperature - ideal_temperature)
 	var m_dist := absf(moisture - ideal_moisture)
-	var h_dist := absf(height_normalized - ideal_height)
+	var p_dist := absf(position - ideal_position)
 
-	if t_dist > temperature_tolerance or m_dist > moisture_tolerance or h_dist > height_tolerance:
+	if t_dist > temperature_tolerance or m_dist > moisture_tolerance \
+			or p_dist > position_tolerance:
 		return 0.0
 
 	var t_score := 1.0 - (t_dist / temperature_tolerance)
 	var m_score := 1.0 - (m_dist / moisture_tolerance)
-	var h_score := 1.0 - (h_dist / height_tolerance)
+	var p_score := 1.0 - (p_dist / position_tolerance)
 
 	# 0.25 x 0.25 is treated as the reference envelope, so a typical biome
 	# keeps a weight near 1 and only the extremes are pushed around.
 	var envelope := maxf(temperature_tolerance * moisture_tolerance, 0.0001)
 	var specificity := sqrt(0.0625 / envelope)
 
-	return t_score * m_score * h_score * specificity
+	return t_score * m_score * p_score * specificity
 
 
 ## Weighted pick of a ground-cover sprite index for this biome.
@@ -148,7 +183,19 @@ func pick_foliage_sprite(rng: RandomNumberGenerator, sprite_count: int) -> int:
 ## producing large arbitrary patches of that biome wherever the world drifted
 ## outside every tolerance band. This ranks the NEAREST biome instead.
 func affinity(temperature: float, moisture: float, height_normalized: float) -> float:
+	return _affinity_on(temperature, moisture, height_normalized, ideal_height,
+		height_tolerance)
+
+
+## Soft affinity on the depth axis, for the seafloor fallback.
+func affinity_underwater(temperature: float, moisture: float, depth_m: float) -> float:
+	return _affinity_on(temperature, moisture, depth_m, ideal_depth,
+		depth_tolerance)
+
+
+func _affinity_on(temperature: float, moisture: float, position: float,
+		ideal_position: float, position_tolerance: float) -> float:
 	var t_dist := absf(temperature - ideal_temperature) / maxf(temperature_tolerance, 0.001)
 	var m_dist := absf(moisture - ideal_moisture) / maxf(moisture_tolerance, 0.001)
-	var h_dist := absf(height_normalized - ideal_height) / maxf(height_tolerance, 0.001)
-	return 1.0 / (1.0 + t_dist * t_dist + m_dist * m_dist + h_dist * h_dist)
+	var p_dist := absf(position - ideal_position) / maxf(position_tolerance, 0.001)
+	return 1.0 / (1.0 + t_dist * t_dist + m_dist * m_dist + p_dist * p_dist)

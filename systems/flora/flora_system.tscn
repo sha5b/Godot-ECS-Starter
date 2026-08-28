@@ -19,6 +19,7 @@
 [ext_resource type="PackedScene" path="res://systems/flora/content/seaweed.tscn" id="17_seaweed"]
 [ext_resource type="PackedScene" path="res://systems/flora/content/kelp.tscn" id="18_kelp"]
 [ext_resource type="PackedScene" path="res://systems/flora/content/coral.tscn" id="19_coral"]
+[ext_resource type="PackedScene" path="res://systems/flora/content/seafloor_rock.tscn" id="20_seafloor_rock"]
 
 [node name="FloraSystem" type="Node3D" unique_id=1314277574]
 script = ExtResource("1_fs")
@@ -62,3 +63,5 @@ base_density = 500
 [node name="Kelp" parent="." unique_id=1519960935 instance=ExtResource("18_kelp")]
 
 [node name="Coral" parent="." unique_id=1471817532 instance=ExtResource("19_coral")]
+
+[node name="SeafloorRock" parent="." instance=ExtResource("20_seafloor_rock")]

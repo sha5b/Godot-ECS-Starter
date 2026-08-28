@@ -70,7 +70,7 @@ extends Node
 
 ## Clamps on that widening, as multiples of foam_width.
 @export_range(0.1, 2.0) var foam_band_min: float = 0.55
-@export_range(1.0, 8.0) var foam_band_max: float = 2.8
+@export_range(1.0, 8.0) var foam_band_max: float = 1.8
 
 ## Foam left on a fully sheltered shore, as a fraction of an exposed one.
 ## 1 = every coast foams the same whichever way it faces.

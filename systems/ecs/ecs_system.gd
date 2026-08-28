@@ -267,17 +267,24 @@ func _ensure_species_registered() -> void:
 ## `spawned` counts what this chunk has placed so far, so FaunaEntry's authored
 ## max_per_chunk is respected — otherwise one heavy-weighted species takes the
 ## whole chunk budget and a plain ends up holding nothing but rabbits.
-func _pick_species_entry(biome_name: StringName, spawned: Dictionary) -> FaunaEntry:
+##
+## `water_depth` is metres of water over the ground, 0 on land. It selects for
+## the medium: only aquatic types are offered a submerged spot and only land
+## and flying types a dry one. Without it the aquatic types were competing for
+## dry ground they can never occupy, and the ECS never sampled a wet spot at
+## all — so fish and whales did not exist in the world.
+func _pick_species_entry(biome_name: StringName, spawned: Dictionary,
+		water_depth: float) -> FaunaEntry:
 	var total := 0.0
 	for entry in _spawnable_entries:
-		if _entry_available(entry, biome_name, spawned):
+		if _entry_available(entry, biome_name, spawned, water_depth):
 			total += entry.spawn_weight
 	if total <= 0.0:
 		return null
 	var roll := _populate_rng.randf() * total
 	var acc := 0.0
 	for entry in _spawnable_entries:
-		if not _entry_available(entry, biome_name, spawned):
+		if not _entry_available(entry, biome_name, spawned, water_depth):
 			continue
 		acc += entry.spawn_weight
 		if roll <= acc:
@@ -286,8 +293,13 @@ func _pick_species_entry(biome_name: StringName, spawned: Dictionary) -> FaunaEn
 
 
 func _entry_available(entry: FaunaEntry, biome_name: StringName,
-		spawned: Dictionary) -> bool:
+		spawned: Dictionary, water_depth: float) -> bool:
 	if not entry.is_allowed_in_biome(biome_name):
+		return false
+	if entry.aquatic:
+		if water_depth < entry.min_water_depth or water_depth > entry.max_water_depth:
+			return false
+	elif water_depth > 0.0:
 		return false
 	return int(spawned.get(entry.entry_name, 0)) < entry.max_per_chunk
 
@@ -300,26 +312,37 @@ func _spawn_critters(chunk_data: ChunkData, origin: Vector3,
 	_ensure_species_registered()
 	## entry name -> how many this chunk has placed, against max_per_chunk.
 	var spawned_here: Dictionary = {}
-	var min_height := SharedWorld.sea_level + _config.populate_min_height_above_sea
+	var sea := SharedWorld.sea_level
+	var min_height := sea + _config.populate_min_height_above_sea
 	var coord := SharedWorld.world_to_chunk(origin + Vector3(cs * 0.5, 0, cs * 0.5))
 	for i in count:
 		var local := Vector2(_populate_rng.randf(), _populate_rng.randf()) * cs
 		var height := _sample_terrain_height(coord, local.x, local.y)
-		if height < min_height:
+		# Wet spots are candidates now. This filter used to reject every
+		# position below sea level, so no aquatic species could ever spawn
+		# however well its biome and depth range matched — fish and whales had
+		# no living individuals anywhere in the world.
+		var water_depth := maxf(sea - height, 0.0)
+		if water_depth <= 0.0 and height < min_height:
 			continue
 		var spawn_pos := origin + Vector3(local.x, height, local.y)
 
-		# Which species belongs here. Biome-gated, from authored content —
-		# the ECS layer used to spawn one anonymous critter type everywhere,
-		# with no idea that biomes or species existed.
+		# Which species belongs here. Biome- and medium-gated, from authored
+		# content — the ECS layer used to spawn one anonymous critter type
+		# everywhere, with no idea that biomes or species existed.
 		var entry: FaunaEntry = null
 		if _config.use_fauna_species:
-			entry = _pick_species_entry(_biome_name_at(spawn_pos), spawned_here)
+			entry = _pick_species_entry(_biome_name_at(spawn_pos), spawned_here,
+				water_depth)
 			if entry == null and not _spawnable_entries.is_empty():
 				continue
 			if entry != null:
 				spawned_here[entry.entry_name] = \
 					int(spawned_here.get(entry.entry_name, 0)) + 1
+		elif water_depth > 0.0:
+			# No authored content to choose from, so the generic critter is a
+			# walker and has no business in the water.
+			continue
 
 		var entity := world.spawn()
 		var transform := CTransform.new()
@@ -366,6 +389,14 @@ func _spawn_critters(chunk_data: ChunkData, origin: Vector3,
 		else:
 			agent.move_speed = _populate_rng.randf_range(2.6, 3.8)
 		world.add_component(entity, agent)
+		# Which medium this animal lives in, from its own content. The
+		# grounding pass reads it; without it a fish sits in the seafloor and
+		# a bird walks.
+		if entry != null:
+			var locomotion := CLocomotion.from_entry(entry, _populate_rng)
+			world.add_component(entity, locomotion)
+			if locomotion.hover_height > 0.0:
+				transform.position.y += locomotion.hover_height
 		if record != null and record.flocks:
 			world.add_component(entity, CGroup.from_record(record))
 		if genome_comp != null:
@@ -538,13 +569,69 @@ func _make_campfire_view(position: Vector3) -> EntityView:
 func _ground_agents(world: EcsWorld, _delta: float, frame: int) -> void:
 	if _ground_cache == null:
 		_ground_cache = world.query([&"CTransform", &"CAgent"])
+	var sea := SharedWorld.sea_level
 	for entity in world.frame_entities(_ground_cache, frame):
 		var transform := world.get_component(entity, &"CTransform") as CTransform
 		if transform == null:
 			continue
 		var height := _surface_height(transform.position.x, transform.position.z)
-		if height != INF:
+		if height == INF:
+			continue
+		var locomotion := world.get_component(entity, &"CLocomotion") as CLocomotion
+		if locomotion == null or locomotion.medium == CLocomotion.Medium.LAND:
 			transform.position.y = height
+			# A walker that has waded out of its depth is turned back. The AI
+			# writes planar intent with no idea the sea exists, so without this
+			# deer and rabbits walk out to sea and keep going.
+			if sea - height > _config.wade_depth:
+				_steer_toward(world, entity, transform, true)
+			continue
+		if locomotion.medium == CLocomotion.Medium.AIR:
+			# Fliers hold their cruising height over whatever is underneath,
+			# and never below the water surface.
+			transform.position.y = maxf(height, sea) + locomotion.hover_height
+			continue
+		_swim(world, entity, transform, height, sea, locomotion)
+
+
+## Keep a swimmer between the seafloor and the surface, and in the water.
+##
+## Two things have to hold. It sits `hover_height` off the bottom but stays
+## submerged, so a fish in shallows rides lower rather than breaching. And it
+## is turned back where the water gets shallower than its authored minimum —
+## the AI writes planar intent with no idea the sea has edges, so without this
+## a shoal wanders up the beach and stands on the sand.
+func _swim(world: EcsWorld, entity: int, transform: CTransform, ground: float,
+		sea: float, locomotion: CLocomotion) -> void:
+	if sea - ground < locomotion.min_water_depth:
+		_steer_toward(world, entity, transform, false)
+	# Submerged, and off the bottom by as much as the water allows: a fish in
+	# the shallows rides lower rather than breaching.
+	var ceiling := sea - 0.25
+	transform.position.y = maxf(minf(ground + locomotion.hover_height, ceiling), ground)
+
+
+## Turn an actor along the seabed slope, keeping its speed.
+##
+## The surface normal of a height field is (-dh/dx, 1, -dh/dz), so its
+## horizontal part points the way the ground FALLS. Uphill is therefore its
+## negation — which is the direction out of the water for a walker, and into it
+## for a swimmer.
+func _steer_toward(world: EcsWorld, entity: int, transform: CTransform,
+		uphill: bool) -> void:
+	var velocity := world.get_component(entity, &"CVelocity") as CVelocity
+	if velocity == null:
+		return
+	var normal := _ground_normal(transform.position.x, transform.position.z)
+	var slope := Vector2(normal.x, normal.z)
+	if uphill:
+		slope = -slope
+	var speed := velocity.linear.length()
+	if slope.length() > 0.001 and speed > 0.001:
+		var wanted := slope.normalized() * speed
+		velocity.linear = Vector3(wanted.x, 0.0, wanted.y)
+	else:
+		velocity.linear = -velocity.linear
 
 
 var _ground_cache: EcsWorld.QueryCache = null
